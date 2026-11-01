@@ -1,4 +1,5 @@
-import { App, FuzzySuggestModal, Notice, PluginSettingTab, Setting } from "obsidian";
+import { App, FuzzySuggestModal, Notice, PluginSettingTab, requireApiVersion, Setting } from "obsidian";
+import type { SettingDefinitionItem, SettingDefinitionPage } from "obsidian";
 import type AIAgentPlugin from "./main";
 import { chat, listModels, ProviderConfig, ProviderKind, ReasoningEffort } from "./llm";
 
@@ -77,46 +78,413 @@ export const DEFAULT_SETTINGS: AgentSettings = {
   appliedPanelPosition: "",
 };
 
+// ---------- 共享的文案与选项（新旧两套设置页共用，避免两处不一致） ----------
+
+const KIND_LABELS: Record<ProviderKind, string> = {
+  "openai-responses": "官方 OpenAI 接口（推荐）",
+  openai: "OpenAI 兼容接口（第三方）",
+  anthropic: "Anthropic",
+};
+
+const PANEL_OPTIONS: Record<PanelPosition, string> = {
+  "right-split": "右侧边栏 · 上下分屏（推荐）",
+  "right-tab": "右侧边栏 · 作为标签页",
+  "left-split": "左侧边栏 · 文件列表下方",
+  "main-split": "编辑区 · 左右分屏",
+};
+
+const CONFIRM_OPTIONS: Record<ConfirmMode, string> = {
+  always: "每次确认（推荐）",
+  never: "自动应用",
+};
+
+const REASONING_OPTIONS: Record<string, string> = {
+  "": "模型默认",
+  none: "None（关闭推理）",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
+
+const TEXT = {
+  activeDesc: "聊天面板顶部也可以切换",
+  panelDesc: "“右侧边栏（上下分屏）”会让对话面板和大纲等面板同时显示，不再互相遮挡。也可以直接拖动面板的标签到任意位置。",
+  confirmDesc: "“每次确认”会弹出差异对比，由你决定是否应用；“自动应用”直接写入（每次修改仍可在聊天面板中撤销）。删除操作始终需要确认。",
+  maxStepsDesc: "一次请求中助手最多调用多少轮工具，防止死循环",
+  maxReadDesc: "超长笔记会被截断后再发给模型，节省 token",
+  promptDesc: "定义助手的角色和规则",
+  kindDesc: "OpenAI 官方（尤其是推理模型）选第一项；其他第三方服务选兼容接口；Claude 官方选 Anthropic",
+  modelDesc: "需要支持工具调用（function calling）的模型",
+  reasoningDesc: "仅对推理模型（如 GPT-5 / o 系列）有效。越高越聪明但越慢越贵；改笔记这类任务通常 low 或 medium 就够。",
+  tempDesc: "温度填 -1 表示使用模型默认值；最大 token 填 0 表示默认",
+};
+
+/** 一行设置：名称、说明、搜索别名，以及填充这一行的渲染函数 */
+interface SettingRow {
+  name: string;
+  desc?: string;
+  aliases?: string[];
+  render: (setting: Setting) => void;
+}
+
+function isLocalUrl(url: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)/.test(url);
+}
+
 export class AgentSettingTab extends PluginSettingTab {
   plugin: AIAgentPlugin;
   private presetIndex = 0;
   private activeSelect: HTMLSelectElement | null = null;
-
-  /** 名称/模型改动后，立即刷新“当前使用”下拉框（聊天面板由 saveSettings 刷新） */
-  private refreshActiveSelect() {
-    const sel = this.activeSelect;
-    if (!sel) return;
-    const s = this.plugin.settings;
-    sel.empty();
-    for (const p of s.providers) sel.createEl("option", { value: p.id, text: `${p.name} · ${p.model || "未设置模型"}` });
-    sel.value = this.plugin.activeProvider()?.id ?? "";
-  }
 
   constructor(app: App, plugin: AIAgentPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
 
+  // =====================================================================
+  // Obsidian 1.13+：声明式设置。设置项会出现在 Obsidian 的设置搜索里。
+  // =====================================================================
+
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    const s = this.plugin.settings;
+    return [
+      {
+        type: "group",
+        heading: "模型提供商",
+        items: [
+          {
+            name: "当前使用",
+            desc: TEXT.activeDesc,
+            aliases: ["provider", "model", "AI", "提供商", "模型"],
+            control: { type: "dropdown", key: "activeProviderId", options: this.providerOptions() },
+          },
+        ],
+      },
+      {
+        type: "list",
+        heading: "已配置的提供商",
+        emptyState: "还没有提供商，点击右上角的 ＋ 添加",
+        addItem: {
+          name: "添加提供商",
+          action: () => new PresetPickerModal(this.app, (preset) => void this.addProvider(preset)).open(),
+        },
+        onDelete: (index) => void this.deleteProvider(index),
+        items: s.providers.map((p): SettingDefinitionPage => ({
+          type: "page",
+          name: p.name || "未命名提供商",
+          desc: KIND_LABELS[p.kind],
+          displayValue: () => p.model || "未设置模型",
+          status: () => (!p.apiKey && !isLocalUrl(p.baseUrl) ? "warning" : null),
+          items: [
+            {
+              type: "group",
+              items: this.providerRows(p).map((row) => ({
+                name: row.name,
+                desc: row.desc,
+                aliases: row.aliases,
+                render: (setting: Setting) => row.render(setting),
+              })),
+            },
+          ],
+        })),
+      },
+      {
+        type: "group",
+        heading: "界面",
+        items: [
+          {
+            name: "面板位置",
+            desc: TEXT.panelDesc,
+            aliases: ["panel", "sidebar", "侧边栏", "布局"],
+            control: { type: "dropdown", key: "panelPosition", options: PANEL_OPTIONS },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Agent 行为",
+        extraButtons: [
+          (b) =>
+            b.setIcon("rotate-ccw").setTooltip("恢复默认系统提示词").onClick(async () => {
+              s.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+              await this.plugin.saveSettings();
+              this.rerender();
+            }),
+        ],
+        items: [
+          {
+            name: "修改笔记前确认",
+            desc: TEXT.confirmDesc,
+            aliases: ["confirm", "diff", "确认"],
+            control: { type: "dropdown", key: "confirmMode", options: CONFIRM_OPTIONS },
+          },
+          {
+            name: "单次最多步骤数",
+            desc: TEXT.maxStepsDesc,
+            control: {
+              type: "number",
+              key: "maxSteps",
+              min: 1,
+              max: 200,
+              step: 1,
+              defaultValue: DEFAULT_SETTINGS.maxSteps,
+              validate: (v) => (Number.isInteger(v) && v > 0 ? undefined : "请输入大于 0 的整数"),
+            },
+          },
+          {
+            name: "单篇笔记最多读取字符数",
+            desc: TEXT.maxReadDesc,
+            control: {
+              type: "number",
+              key: "maxReadChars",
+              min: 1000,
+              step: 1000,
+              defaultValue: DEFAULT_SETTINGS.maxReadChars,
+              validate: (v) => (Number.isInteger(v) && v >= 1000 ? undefined : "请输入不小于 1000 的整数"),
+            },
+          },
+          {
+            name: "显示工具调用详情",
+            control: { type: "toggle", key: "showToolDetails" },
+          },
+          {
+            name: "系统提示词",
+            desc: TEXT.promptDesc,
+            aliases: ["system prompt", "prompt", "提示词"],
+            control: { type: "textarea", key: "systemPrompt", rows: 12 },
+          },
+        ],
+      },
+      {
+        name: "API key 的存储位置",
+        desc: this.keyStorageNote(),
+        aliases: ["api key", "密钥", "安全"],
+      },
+    ];
+  }
+
+  getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    (this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+    await this.plugin.saveSettings();
+    if (key === "panelPosition") await this.plugin.relocateView();
+  }
+
+  /** 结构性变化（增删提供商等）后重新渲染：1.13+ 用 update()，旧版本用 display() */
+  private rerender() {
+    if (requireApiVersion("1.13.0")) {
+      // eslint-disable-next-line obsidianmd/no-unsupported-api -- only reached on Obsidian 1.13+, where update() exists
+      this.update();
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- fallback renderer for Obsidian < 1.13
+      this.display();
+    }
+  }
+
+  private providerOptions(): Record<string, string> {
+    const options: Record<string, string> = {};
+    for (const p of this.plugin.settings.providers) options[p.id] = `${p.name} · ${p.model || "未设置模型"}`;
+    return options;
+  }
+
+  private keyStorageNote(): string {
+    return `API key 以明文保存在 ${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}/data.json 中。如果你同步或公开仓库，请注意不要泄露该文件。`;
+  }
+
+  private async addProvider(preset: Preset) {
+    const s = this.plugin.settings;
+    const p = newProviderFromPreset(preset);
+    s.providers.push(p);
+    if (!s.activeProviderId) s.activeProviderId = p.id;
+    await this.plugin.saveSettings();
+    this.rerender();
+  }
+
+  private async deleteProvider(index: number) {
+    const s = this.plugin.settings;
+    const [removed] = s.providers.splice(index, 1);
+    if (removed && s.activeProviderId === removed.id) s.activeProviderId = s.providers[0]?.id ?? "";
+    await this.plugin.saveSettings();
+    this.rerender();
+  }
+
+  /** 名称/模型改动后，立即刷新旧版设置页里的“当前使用”下拉框（聊天面板由 saveSettings 刷新） */
+  private refreshActiveSelect() {
+    const sel = this.activeSelect;
+    if (!sel) return;
+    sel.empty();
+    for (const [id, label] of Object.entries(this.providerOptions())) sel.createEl("option", { value: id, text: label });
+    sel.value = this.plugin.activeProvider()?.id ?? "";
+  }
+
+  /** 单个提供商的所有设置行。新旧两套设置页共用这一份定义。 */
+  private providerRows(p: ProviderConfig): SettingRow[] {
+    const save = () => this.plugin.saveSettings();
+    let modelInput: HTMLInputElement | null = null;
+    return [
+      {
+        name: "名称",
+        render: (setting) =>
+          setting.addText((t) =>
+            t.setValue(p.name).onChange(async (v) => {
+              p.name = v;
+              await save();
+              this.refreshActiveSelect();
+            }),
+          ),
+      },
+      {
+        name: "接口协议",
+        desc: TEXT.kindDesc,
+        render: (setting) =>
+          setting.addDropdown((d) => {
+            for (const [k, label] of Object.entries(KIND_LABELS)) d.addOption(k, label);
+            d.setValue(p.kind).onChange(async (v) => {
+              p.kind = v as ProviderKind;
+              await save();
+              this.rerender();
+            });
+          }),
+      },
+      {
+        name: "Base URL",
+        desc: p.kind === "anthropic" ? "例如 https://api.anthropic.com" : "例如 https://api.openai.com/v1（不要带 /chat/completions）",
+        aliases: ["endpoint", "url", "接口地址"],
+        render: (setting) =>
+          setting.addText((t) => t.setValue(p.baseUrl).onChange(async (v) => { p.baseUrl = v.trim(); await save(); })),
+      },
+      {
+        name: "API key",
+        aliases: ["key", "token", "密钥"],
+        render: (setting) =>
+          setting.addText((t) => {
+            t.inputEl.type = "password";
+            t.setValue(p.apiKey).onChange(async (v) => { p.apiKey = v.trim(); await save(); });
+          }),
+      },
+      {
+        name: "模型",
+        desc: TEXT.modelDesc,
+        aliases: ["model"],
+        render: (setting) => {
+          setting.addText((t) => {
+            modelInput = t.inputEl;
+            t.setValue(p.model).onChange(async (v) => {
+              p.model = v.trim();
+              await save();
+              this.refreshActiveSelect();
+            });
+          });
+          setting.addButton((b) =>
+            b.setButtonText("应用").setCta().onClick(async () => {
+              if (modelInput) p.model = modelInput.value.trim();
+              this.plugin.settings.activeProviderId = p.id;
+              await save();
+              new Notice(`✅ 已切换为 ${p.name} · ${p.model || "未设置模型"}`);
+              this.rerender();
+            }),
+          );
+          setting.addButton((b) =>
+            b.setButtonText("选择模型").onClick(async () => {
+              b.setDisabled(true).setButtonText("获取中…");
+              try {
+                const models = await listModels(p);
+                new ModelPickerModal(this.app, models, async (m) => {
+                  p.model = m;
+                  if (modelInput) modelInput.value = m;
+                  await save();
+                  this.refreshActiveSelect();
+                  new Notice(`已选择模型：${m}`);
+                }).open();
+              } catch (e) {
+                new Notice(`获取模型失败：${(e as Error).message}`, 8000);
+              } finally {
+                b.setDisabled(false).setButtonText("选择模型");
+              }
+            }),
+          );
+        },
+      },
+      {
+        name: "推理强度",
+        desc: TEXT.reasoningDesc,
+        aliases: ["reasoning effort", "reasoning"],
+        render: (setting) =>
+          setting.addDropdown((d) => {
+            for (const [k, label] of Object.entries(REASONING_OPTIONS)) d.addOption(k, label);
+            d.setValue(p.reasoningEffort ?? "").onChange(async (v) => {
+              p.reasoningEffort = v as ReasoningEffort;
+              await save();
+            });
+          }),
+      },
+      {
+        name: "温度 / 最大输出 token",
+        desc: TEXT.tempDesc,
+        aliases: ["temperature", "max tokens"],
+        render: (setting) =>
+          setting
+            .addText((t) =>
+              t.setValue(String(p.temperature)).onChange(async (v) => {
+                const n = parseFloat(v);
+                if (!isNaN(n)) { p.temperature = n; await save(); }
+              }),
+            )
+            .addText((t) =>
+              t.setValue(String(p.maxTokens)).onChange(async (v) => {
+                const n = parseInt(v);
+                if (!isNaN(n)) { p.maxTokens = n; await save(); }
+              }),
+            ),
+      },
+      {
+        name: "测试连接",
+        desc: "发送一条简短请求，检查地址、API key 和模型是否可用",
+        render: (setting) =>
+          setting.addButton((b) =>
+            b.setButtonText("测试连接").onClick(async () => {
+              b.setDisabled(true).setButtonText("测试中…");
+              try {
+                const r = await chat(p, "You are a helpful assistant.", [{ role: "user", content: "Reply with: OK" }], []);
+                new Notice(`✅ ${p.name} 连接成功：${r.content.slice(0, 60)}`);
+              } catch (e) {
+                new Notice(`❌ ${p.name} 连接失败：${(e as Error).message}`, 10000);
+              } finally {
+                b.setDisabled(false).setButtonText("测试连接");
+              }
+            }),
+          ),
+      },
+    ];
+  }
+
+  // =====================================================================
+  // Obsidian < 1.13：传统的命令式设置页（1.13+ 不会调用）
+  // =====================================================================
+
   display(): void {
     const { containerEl } = this;
     const s = this.plugin.settings;
     containerEl.empty();
-
 
     // ---------- 模型提供商 ----------
     new Setting(containerEl).setName("模型提供商").setHeading();
 
     new Setting(containerEl)
       .setName("当前使用")
-      .setDesc("聊天面板顶部也可以切换")
+      .setDesc(TEXT.activeDesc)
       .addDropdown((d) => {
-        for (const p of s.providers) d.addOption(p.id, `${p.name} · ${p.model || "未设置模型"}`);
+        for (const [id, label] of Object.entries(this.providerOptions())) d.addOption(id, label);
         d.setValue(this.plugin.activeProvider()?.id ?? "");
         this.activeSelect = d.selectEl;
         d.onChange(async (v) => {
           s.activeProviderId = v;
           await this.plugin.saveSettings();
-          this.display();
+          this.rerender();
         });
       });
 
@@ -130,55 +498,57 @@ export class AgentSettingTab extends PluginSettingTab {
       })
       .addButton((b) =>
         b.setButtonText("添加").setCta().onClick(async () => {
-          const p = newProviderFromPreset(PRESETS[this.presetIndex]);
-          s.providers.push(p);
-          if (!s.activeProviderId) s.activeProviderId = p.id;
-          await this.plugin.saveSettings();
-          this.display();
+          await this.addProvider(PRESETS[this.presetIndex]);
         }),
       );
 
-    for (const p of s.providers) this.renderProvider(containerEl, p);
+    s.providers.forEach((p, index) => {
+      const box = containerEl.createDiv({ cls: "aiac-provider-box" });
+      const isActive = this.plugin.activeProvider()?.id === p.id;
+      new Setting(box)
+        .setName(`${p.name}${isActive ? "（当前）" : ""}`)
+        .setHeading()
+        .addExtraButton((b) =>
+          b.setIcon("trash").setTooltip("删除该提供商").onClick(async () => {
+            await this.deleteProvider(index);
+          }),
+        );
+      for (const row of this.providerRows(p)) {
+        const setting = new Setting(box).setName(row.name);
+        if (row.desc) setting.setDesc(row.desc);
+        row.render(setting);
+      }
+    });
 
     // ---------- 界面 ----------
     new Setting(containerEl).setName("界面").setHeading();
     new Setting(containerEl)
       .setName("面板位置")
-      .setDesc("“右侧边栏（上下分屏）”会让对话面板和大纲等面板同时显示，不再互相遮挡。也可以直接拖动面板的标签到任意位置。")
-      .addDropdown((d) =>
-        d
-          .addOption("right-split", "右侧边栏 · 上下分屏（推荐）")
-          .addOption("right-tab", "右侧边栏 · 作为标签页")
-          .addOption("left-split", "左侧边栏 · 文件列表下方")
-          .addOption("main-split", "编辑区 · 左右分屏")
-          .setValue(s.panelPosition)
-          .onChange(async (v) => {
-            s.panelPosition = v as PanelPosition;
-            await this.plugin.saveSettings();
-            await this.plugin.relocateView();
-          }),
-      );
+      .setDesc(TEXT.panelDesc)
+      .addDropdown((d) => {
+        for (const [k, label] of Object.entries(PANEL_OPTIONS)) d.addOption(k, label);
+        d.setValue(s.panelPosition).onChange(async (v) => {
+          await this.setControlValue("panelPosition", v as PanelPosition);
+        });
+      });
 
     // ---------- Agent 行为 ----------
     new Setting(containerEl).setName("Agent 行为").setHeading();
 
     new Setting(containerEl)
       .setName("修改笔记前确认")
-      .setDesc("“每次确认”会弹出差异对比，由你决定是否应用；“自动应用”直接写入（每次修改仍可在聊天面板中撤销）。删除操作始终需要确认。")
-      .addDropdown((d) =>
-        d
-          .addOption("always", "每次确认（推荐）")
-          .addOption("never", "自动应用")
-          .setValue(s.confirmMode)
-          .onChange(async (v) => {
-            s.confirmMode = v as ConfirmMode;
-            await this.plugin.saveSettings();
-          }),
-      );
+      .setDesc(TEXT.confirmDesc)
+      .addDropdown((d) => {
+        for (const [k, label] of Object.entries(CONFIRM_OPTIONS)) d.addOption(k, label);
+        d.setValue(s.confirmMode).onChange(async (v) => {
+          s.confirmMode = v as ConfirmMode;
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl)
       .setName("单次最多步骤数")
-      .setDesc("一次请求中助手最多调用多少轮工具，防止死循环")
+      .setDesc(TEXT.maxStepsDesc)
       .addText((t) =>
         t.setValue(String(s.maxSteps)).onChange(async (v) => {
           const n = parseInt(v);
@@ -188,7 +558,7 @@ export class AgentSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("单篇笔记最多读取字符数")
-      .setDesc("超长笔记会被截断后再发给模型，节省 token")
+      .setDesc(TEXT.maxReadDesc)
       .addText((t) =>
         t.setValue(String(s.maxReadChars)).onChange(async (v) => {
           const n = parseInt(v);
@@ -207,12 +577,12 @@ export class AgentSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("系统提示词")
-      .setDesc("定义助手的角色和规则")
+      .setDesc(TEXT.promptDesc)
       .addExtraButton((b) =>
         b.setIcon("rotate-ccw").setTooltip("恢复默认").onClick(async () => {
           s.systemPrompt = DEFAULT_SYSTEM_PROMPT;
           await this.plugin.saveSettings();
-          this.display();
+          this.rerender();
         }),
       );
     const ta = containerEl.createEl("textarea", { cls: "aiac-system-prompt" });
@@ -222,140 +592,19 @@ export class AgentSettingTab extends PluginSettingTab {
       void this.plugin.saveSettings();
     });
 
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: `提示：API Key 以明文保存在 ${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}/data.json 中。如果你同步或公开仓库，请注意不要泄露该文件。`,
-    });
+    containerEl.createEl("p", { cls: "setting-item-description", text: `提示：${this.keyStorageNote()}` });
   }
+}
 
-  private renderProvider(containerEl: HTMLElement, p: ProviderConfig) {
-    const s = this.plugin.settings;
-    const box = containerEl.createDiv({ cls: "aiac-provider-box" });
-    const isActive = this.plugin.activeProvider()?.id === p.id;
-
-    new Setting(box)
-      .setName(`${p.name}${isActive ? "（当前）" : ""}`)
-      .setHeading()
-      .addButton((b) =>
-        b.setButtonText("测试连接").onClick(async () => {
-          b.setDisabled(true).setButtonText("测试中…");
-          try {
-            const r = await chat(p, "You are a helpful assistant.", [{ role: "user", content: "Reply with: OK" }], []);
-            new Notice(`✅ ${p.name} 连接成功：${r.content.slice(0, 60)}`);
-          } catch (e) {
-            new Notice(`❌ ${p.name} 连接失败：${(e as Error).message}`, 10000);
-          } finally {
-            b.setDisabled(false).setButtonText("测试连接");
-          }
-        }),
-      )
-      .addExtraButton((b) =>
-        b.setIcon("trash").setTooltip("删除该提供商").onClick(async () => {
-          s.providers = s.providers.filter((x) => x.id !== p.id);
-          if (s.activeProviderId === p.id) s.activeProviderId = s.providers[0]?.id ?? "";
-          await this.plugin.saveSettings();
-          this.display();
-        }),
-      );
-
-    new Setting(box).setName("名称").addText((t) =>
-      t.setValue(p.name).onChange(async (v) => { p.name = v; await this.plugin.saveSettings(); this.refreshActiveSelect(); }),
-    );
-
-    new Setting(box)
-      .setName("接口协议")
-      .setDesc("OpenAI 官方（尤其是推理模型）选第一项；其他第三方服务选兼容接口；Claude 官方选 Anthropic")
-      .addDropdown((d) =>
-        d
-          .addOption("openai-responses", "官方 OpenAI 接口（推荐）")
-          .addOption("openai", "OpenAI 兼容接口（第三方）")
-          .addOption("anthropic", "Anthropic")
-          .setValue(p.kind).onChange(async (v) => {
-          p.kind = v as ProviderKind;
-          await this.plugin.saveSettings();
-          this.display();
-        }),
-      );
-
-    new Setting(box)
-      .setName("Base URL")
-      .setDesc(p.kind === "anthropic" ? "例如 https://api.anthropic.com" : "例如 https://api.openai.com/v1（不要带 /chat/completions）")
-      .addText((t) => t.setValue(p.baseUrl).onChange(async (v) => { p.baseUrl = v.trim(); await this.plugin.saveSettings(); }));
-
-    new Setting(box).setName("API key").addText((t) => {
-      t.inputEl.type = "password";
-      t.setValue(p.apiKey).onChange(async (v) => { p.apiKey = v.trim(); await this.plugin.saveSettings(); });
-    });
-
-    const modelSetting = new Setting(box).setName("模型").setDesc("需要支持工具调用（function calling）的模型");
-    let modelInput: HTMLInputElement;
-    modelSetting.addText((t) => {
-      modelInput = t.inputEl;
-      t.setValue(p.model).onChange(async (v) => { p.model = v.trim(); await this.plugin.saveSettings(); this.refreshActiveSelect(); });
-    });
-    modelSetting.addButton((b) =>
-      b.setButtonText("应用").setCta().onClick(async () => {
-        p.model = modelInput.value.trim();
-        s.activeProviderId = p.id;
-        await this.plugin.saveSettings();
-        new Notice(`✅ 已切换为 ${p.name} · ${p.model || "未设置模型"}`);
-        this.display();
-      }),
-    );
-    modelSetting.addButton((b) =>
-      b.setButtonText("选择模型").onClick(async () => {
-        b.setDisabled(true).setButtonText("获取中…");
-        try {
-          const models = await listModels(p);
-          new ModelPickerModal(this.app, models, async (m) => {
-            p.model = m;
-            modelInput.value = m;
-            await this.plugin.saveSettings();
-            this.refreshActiveSelect();
-            new Notice(`已选择模型：${m}`);
-          }).open();
-        } catch (e) {
-          new Notice(`获取模型失败：${(e as Error).message}`, 8000);
-        } finally {
-          b.setDisabled(false).setButtonText("选择模型");
-        }
-      }),
-    );
-
-    new Setting(box)
-      .setName("推理强度")
-      .setDesc("仅对推理模型（如 GPT-5 / o 系列）有效。越高越聪明但越慢越贵；改笔记这类任务通常 low 或 medium 就够。")
-      .addDropdown((d) =>
-        d
-          .addOption("", "模型默认")
-          .addOption("none", "None（关闭推理）")
-          .addOption("minimal", "Minimal")
-          .addOption("low", "Low")
-          .addOption("medium", "Medium")
-          .addOption("high", "High")
-          .setValue(p.reasoningEffort ?? "")
-          .onChange(async (v) => {
-            p.reasoningEffort = v as ReasoningEffort;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(box)
-      .setName("温度 / 最大输出 token")
-      .setDesc("温度填 -1 表示使用模型默认值；最大 token 填 0 表示默认")
-      .addText((t) =>
-        t.setValue(String(p.temperature)).onChange(async (v) => {
-          const n = parseFloat(v);
-          if (!isNaN(n)) { p.temperature = n; await this.plugin.saveSettings(); }
-        }),
-      )
-      .addText((t) =>
-        t.setValue(String(p.maxTokens)).onChange(async (v) => {
-          const n = parseInt(v);
-          if (!isNaN(n)) { p.maxTokens = n; await this.plugin.saveSettings(); }
-        }),
-      );
+/** 1.13+ 设置页“添加提供商”时的预设选择器 */
+class PresetPickerModal extends FuzzySuggestModal<Preset> {
+  constructor(app: App, private onPick: (preset: Preset) => void) {
+    super(app);
+    this.setPlaceholder("选择要添加的模型提供商");
   }
+  getItems() { return PRESETS; }
+  getItemText(p: Preset) { return p.label; }
+  onChooseItem(p: Preset) { this.onPick(p); }
 }
 
 /** 不适合对话/工具调用的模型（语音、绘图、向量等），排到列表末尾 */
