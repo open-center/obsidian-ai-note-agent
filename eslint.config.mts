@@ -6,6 +6,7 @@ export default defineConfig(
 	globalIgnores([
 		'node_modules',
 		'.check',
+		'eslint.config.mts',
 		'dist',
 		'esbuild.config.mjs',
 		'version-bump.mjs',
