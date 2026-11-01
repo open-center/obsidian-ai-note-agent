@@ -274,15 +274,15 @@ export class AgentSettingTab extends PluginSettingTab {
     if (key === "panelPosition") await this.plugin.relocateView();
   }
 
-  /** 结构性变化（增删提供商等）后重新渲染：1.13+ 用 update()，旧版本用 display() */
+  /**
+   * 结构性变化（增删提供商等）后重新渲染。
+   * Obsidian 1.13+ 提供 update()（重新读取 getSettingDefinitions 并渲染）；更早的版本没有该方法，退回 display()。
+   * 用运行时特性检测而不是直接调用，保证在 minAppVersion（1.7.2）以上的所有版本都能正常工作。
+   */
   private rerender() {
-    if (requireApiVersion("1.13.0")) {
-      // eslint-disable-next-line obsidianmd/no-unsupported-api -- only reached on Obsidian 1.13+, where update() exists
-      this.update();
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- fallback renderer for Obsidian < 1.13
-      this.display();
-    }
+    const tab = this as unknown as { update?: () => void; display: () => void };
+    if (typeof tab.update === "function" && requireApiVersion("1.13.0")) tab.update();
+    else tab.display();
   }
 
   private providerOptions(): Record<string, string> {
@@ -328,19 +328,20 @@ export class AgentSettingTab extends PluginSettingTab {
     return [
       {
         name: "名称",
-        render: (setting) =>
+        render: (setting) => {
           setting.addText((t) =>
             t.setValue(p.name).onChange(async (v) => {
               p.name = v;
               await save();
               this.refreshActiveSelect();
             }),
-          ),
+          );
+        },
       },
       {
         name: "接口协议",
         desc: TEXT.kindDesc,
-        render: (setting) =>
+        render: (setting) => {
           setting.addDropdown((d) => {
             for (const [k, label] of Object.entries(KIND_LABELS)) d.addOption(k, label);
             d.setValue(p.kind).onChange(async (v) => {
@@ -348,23 +349,26 @@ export class AgentSettingTab extends PluginSettingTab {
               await save();
               this.rerender();
             });
-          }),
+          });
+        },
       },
       {
         name: "Base URL",
         desc: p.kind === "anthropic" ? "例如 https://api.anthropic.com" : "例如 https://api.openai.com/v1（不要带 /chat/completions）",
         aliases: ["endpoint", "url", "接口地址"],
-        render: (setting) =>
-          setting.addText((t) => t.setValue(p.baseUrl).onChange(async (v) => { p.baseUrl = v.trim(); await save(); })),
+        render: (setting) => {
+          setting.addText((t) => t.setValue(p.baseUrl).onChange(async (v) => { p.baseUrl = v.trim(); await save(); }));
+        },
       },
       {
         name: "API key",
         aliases: ["key", "token", "密钥"],
-        render: (setting) =>
+        render: (setting) => {
           setting.addText((t) => {
             t.inputEl.type = "password";
             t.setValue(p.apiKey).onChange(async (v) => { p.apiKey = v.trim(); await save(); });
-          }),
+          });
+        },
       },
       {
         name: "模型",
@@ -413,20 +417,21 @@ export class AgentSettingTab extends PluginSettingTab {
         name: "推理强度",
         desc: TEXT.reasoningDesc,
         aliases: ["reasoning effort", "reasoning"],
-        render: (setting) =>
+        render: (setting) => {
           setting.addDropdown((d) => {
             for (const [k, label] of Object.entries(REASONING_OPTIONS)) d.addOption(k, label);
             d.setValue(p.reasoningEffort ?? "").onChange(async (v) => {
               p.reasoningEffort = v as ReasoningEffort;
               await save();
             });
-          }),
+          });
+        },
       },
       {
         name: "温度 / 最大输出 token",
         desc: TEXT.tempDesc,
         aliases: ["temperature", "max tokens"],
-        render: (setting) =>
+        render: (setting) => {
           setting
             .addText((t) =>
               t.setValue(String(p.temperature)).onChange(async (v) => {
@@ -439,12 +444,13 @@ export class AgentSettingTab extends PluginSettingTab {
                 const n = parseInt(v);
                 if (!isNaN(n)) { p.maxTokens = n; await save(); }
               }),
-            ),
+            );
+        },
       },
       {
         name: "测试连接",
         desc: "发送一条简短请求，检查地址、API key 和模型是否可用",
-        render: (setting) =>
+        render: (setting) => {
           setting.addButton((b) =>
             b.setButtonText("测试连接").onClick(async () => {
               b.setDisabled(true).setButtonText("测试中…");
@@ -457,7 +463,8 @@ export class AgentSettingTab extends PluginSettingTab {
                 b.setDisabled(false).setButtonText("测试连接");
               }
             }),
-          ),
+          );
+        },
       },
     ];
   }
@@ -528,7 +535,7 @@ export class AgentSettingTab extends PluginSettingTab {
       .addDropdown((d) => {
         for (const [k, label] of Object.entries(PANEL_OPTIONS)) d.addOption(k, label);
         d.setValue(s.panelPosition).onChange(async (v) => {
-          await this.setControlValue("panelPosition", v as PanelPosition);
+          await this.setControlValue("panelPosition", v);
         });
       });
 
