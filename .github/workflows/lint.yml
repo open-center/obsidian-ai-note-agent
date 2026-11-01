@@ -14,6 +14,6 @@ jobs:
             - uses: actions/setup-node@v6
               with:
                   node-version: 24
-            - run: npm install
+            - run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
             - run: npm run build
             - run: npm run lint

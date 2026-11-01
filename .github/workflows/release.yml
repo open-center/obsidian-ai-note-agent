@@ -23,7 +23,7 @@ jobs:
 
             - name: Build plugin
               run: |
-                  npm install
+                  if [ -f package-lock.json ]; then npm ci; else npm install; fi
                   npm run build
 
             - name: Check for optional styles
