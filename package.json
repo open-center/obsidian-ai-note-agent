@@ -1,6 +1,6 @@
 {
-	"name": "notewright",
-	"version": "1.0.0",
+	"name": "ai-note-agent",
+	"version": "1.0.1",
 	"description": "Chat with OpenAI, Claude, DeepSeek or any OpenAI-compatible model in Obsidian and let it read, search and edit your notes.",
 	"main": "main.js",
 	"type": "module",
@@ -34,6 +34,6 @@
 	"author": "zhang33 <zyb@zhang33.net>",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/open-center/obsidian-ai-agent.git"
+		"url": "https://github.com/open-center/obsidian-ai-note-agent.git"
 	}
 }

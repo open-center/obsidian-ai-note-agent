@@ -1,7 +1,7 @@
 {
-	"id": "notewright",
-	"name": "NoteWright",
-	"version": "1.0.0",
+	"id": "ai-note-agent",
+	"name": "AI Note Agent",
+	"version": "1.0.1",
 	"minAppVersion": "1.7.2",
 	"description": "Chat with OpenAI, Claude, DeepSeek or any OpenAI-compatible model in a sidebar and let it read, search, create and edit your notes, with a diff preview and undo for every change.",
 	"author": "zhang33",

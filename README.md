@@ -1,4 +1,4 @@
-# NoteWright
+# AI Note Agent
 
 > An AI agent for your Obsidian vault.
 
@@ -38,13 +38,13 @@ Chat with OpenAI, Claude, DeepSeek or any OpenAI-compatible model in an Obsidian
 
 ## Installation
 
-From the community directory: **Settings → Community plugins → Browse**, search for **NoteWright**, install and enable.
+From the community directory: **Settings → Community plugins → Browse**, search for **AI Note Agent**, install and enable.
 
-Manual install: download `main.js`, `manifest.json` and `styles.css` from the latest [release](../../releases) into `<vault>/.obsidian/plugins/notewright/`, then enable the plugin.
+Manual install: download `main.js`, `manifest.json` and `styles.css` from the latest [release](../../releases) into `<vault>/.obsidian/plugins/ai-note-agent/`, then enable the plugin.
 
 ## Usage
 
-1. Open **Settings → NoteWright**, add a provider, paste your API key, click **选择模型** (choose model), then **测试连接** (test connection).
+1. Open **Settings → AI Note Agent**, add a provider, paste your API key, click **选择模型** (choose model), then **测试连接** (test connection).
 2. Click the robot icon in the ribbon to open the chat panel.
 3. Ask things like "Summarize this note and insert the summary at the top" or "Add a todo under ## Tasks".
 
@@ -73,7 +73,7 @@ zhang33 · [zyb@zhang33.net](mailto:zyb@zhang33.net) · part of [OpenCenter](htt
 
 ## 中文说明
 
-**NoteWright（笔记工匠）**：在 Obsidian 侧边栏里和大模型对话，并让它像 Agent 一样**直接读取、搜索、新建和修改你的笔记**。每次修改都有差异预览和一键撤销。
+**AI Note Agent**：在 Obsidian 侧边栏里和大模型对话，并让它像 Agent 一样**直接读取、搜索、新建和修改你的笔记**。每次修改都有差异预览和一键撤销。
 
 ### 功能
 
