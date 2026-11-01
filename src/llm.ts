@@ -15,6 +15,8 @@ export interface ProviderConfig {
   kind: ProviderKind;
   baseUrl: string;
   apiKey: string;
+  /** API key 在 Obsidian 密钥存储中的 ID（使用密钥存储时 apiKey 为空） */
+  apiKeySecret?: string;
   model: string;
   temperature: number;
   maxTokens: number;

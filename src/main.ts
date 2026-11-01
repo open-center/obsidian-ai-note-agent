@@ -3,6 +3,7 @@ import { AgentSettings, AgentSettingTab, DEFAULT_SETTINGS } from "./settings";
 import type { ProviderConfig } from "./llm";
 import { EditorContext, VaultTools } from "./tools";
 import { AgentView, VIEW_TYPE } from "./view";
+import { migrateApiKeys } from "./secrets";
 
 export default class AIAgentPlugin extends Plugin {
   settings!: AgentSettings;
@@ -132,6 +133,8 @@ export default class AIAgentPlugin extends Plugin {
       this.settings.migratedResponses = true;
       await this.saveData(this.settings);
     }
+    // 迁移：把 data.json 里的明文 API key 移到 Obsidian 的系统密钥存储（Obsidian 1.11.4+）
+    if (migrateApiKeys(this.app, this.settings.providers)) await this.saveData(this.settings);
   }
 
   async saveSettings() {

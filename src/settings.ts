@@ -2,6 +2,7 @@ import { App, FuzzySuggestModal, Notice, PluginSettingTab, requireApiVersion, Se
 import type { SettingDefinitionItem, SettingDefinitionPage } from "obsidian";
 import type AIAgentPlugin from "./main";
 import { chat, listModels, ProviderConfig, ProviderKind, ReasoningEffort } from "./llm";
+import { clearApiKey, keyStorageDescription, readApiKey, withApiKey, writeApiKey } from "./secrets";
 
 export type ConfirmMode = "always" | "never";
 export type PanelPosition = "right-split" | "right-tab" | "left-split" | "main-split";
@@ -175,7 +176,7 @@ export class AgentSettingTab extends PluginSettingTab {
           name: p.name || "未命名提供商",
           desc: KIND_LABELS[p.kind],
           displayValue: () => p.model || "未设置模型",
-          status: () => (!p.apiKey && !isLocalUrl(p.baseUrl) ? "warning" : null),
+          status: () => (!readApiKey(this.app, p) && !isLocalUrl(p.baseUrl) ? "warning" : null),
           items: [
             {
               type: "group",
@@ -292,7 +293,7 @@ export class AgentSettingTab extends PluginSettingTab {
   }
 
   private keyStorageNote(): string {
-    return `API key 以明文保存在 ${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}/data.json 中。如果你同步或公开仓库，请注意不要泄露该文件。`;
+    return keyStorageDescription(this.app, this.plugin.manifest.id);
   }
 
   private async addProvider(preset: Preset) {
@@ -307,6 +308,7 @@ export class AgentSettingTab extends PluginSettingTab {
   private async deleteProvider(index: number) {
     const s = this.plugin.settings;
     const [removed] = s.providers.splice(index, 1);
+    if (removed) clearApiKey(this.app, removed);
     if (removed && s.activeProviderId === removed.id) s.activeProviderId = s.providers[0]?.id ?? "";
     await this.plugin.saveSettings();
     this.rerender();
@@ -366,7 +368,15 @@ export class AgentSettingTab extends PluginSettingTab {
         render: (setting) => {
           setting.addText((t) => {
             t.inputEl.type = "password";
-            t.setValue(p.apiKey).onChange(async (v) => { p.apiKey = v.trim(); await save(); });
+            t.setValue(readApiKey(this.app, p)).onChange(async (v) => {
+              try {
+                writeApiKey(this.app, p, v.trim());
+              } catch (e) {
+                new Notice(`API key 保存失败：${(e as Error).message}`, 8000);
+                return;
+              }
+              await save();
+            });
           });
         },
       },
@@ -396,7 +406,7 @@ export class AgentSettingTab extends PluginSettingTab {
             b.setButtonText("选择模型").onClick(async () => {
               b.setDisabled(true).setButtonText("获取中…");
               try {
-                const models = await listModels(p);
+                const models = await listModels(withApiKey(this.app, p));
                 new ModelPickerModal(this.app, models, async (m) => {
                   p.model = m;
                   if (modelInput) modelInput.value = m;
@@ -455,7 +465,7 @@ export class AgentSettingTab extends PluginSettingTab {
             b.setButtonText("测试连接").onClick(async () => {
               b.setDisabled(true).setButtonText("测试中…");
               try {
-                const r = await chat(p, "You are a helpful assistant.", [{ role: "user", content: "Reply with: OK" }], []);
+                const r = await chat(withApiKey(this.app, p), "You are a helpful assistant.", [{ role: "user", content: "Reply with: OK" }], []);
                 new Notice(`✅ ${p.name} 连接成功：${r.content.slice(0, 60)}`);
               } catch (e) {
                 new Notice(`❌ ${p.name} 连接失败：${(e as Error).message}`, 10000);

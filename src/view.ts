@@ -4,6 +4,7 @@ import { Agent } from "./agent";
 import type { ToolCall } from "./llm";
 import { ToolResult, WRITE_TOOLS } from "./tools";
 import { diffStats, lineDiff, renderDiff } from "./diff";
+import { withApiKey } from "./secrets";
 
 export const VIEW_TYPE = "ai-note-agent-view";
 
@@ -190,7 +191,8 @@ export class AgentView extends ItemView {
   private async onSend() {
     const text = this.inputEl.value.trim();
     if (!text || this.agent.running) return;
-    const provider = this.plugin.activeProvider();
+    const configured = this.plugin.activeProvider();
+    const provider = configured ? withApiKey(this.app, configured) : undefined;
     if (!provider) { new Notice("请先在设置中添加模型提供商"); return; }
     if (!provider.apiKey && !/localhost|127\.0\.0\.1/.test(provider.baseUrl)) { new Notice(`「${provider.name}」还没有填写 API Key`); return; }
 
