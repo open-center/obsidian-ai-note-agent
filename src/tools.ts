@@ -174,7 +174,10 @@ export class VaultTools {
     } catch {
       return { output: `参数不是合法 JSON：${argsJson.slice(0, 200)}`, isError: true };
     }
-    const text = (k: string) => (typeof args[k] === "string" ? (args[k] as string) : args[k] == null ? "" : JSON.stringify(args[k]));
+    const text = (k: string): string => {
+      const v = args[k];
+      return typeof v === "string" ? v : v == null ? "" : JSON.stringify(v);
+    };
     try {
       switch (name) {
         case "get_current_note": return await this.getCurrentNote();

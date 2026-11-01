@@ -52,7 +52,7 @@ export default class AIAgentPlugin extends Plugin {
       this.app.workspace.on("editor-menu", (menu, editor) => {
         if (!editor.getSelection()) return;
         menu.addItem((item) =>
-          item.setTitle("发送给 AI Agent").setIcon("bot").onClick(async () => {
+          item.setTitle("发送给 AI 助手").setIcon("bot").onClick(async () => {
             const view = await this.activateView();
             view?.refreshContext();
             view?.setInput("请处理我选中的文本：");
@@ -120,8 +120,8 @@ export default class AIAgentPlugin extends Plugin {
   }
 
   async loadSettings() {
-    const data = (await this.loadData()) ?? {};
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+    const data = ((await this.loadData()) ?? {}) as Partial<AgentSettings>;
+    this.settings = { ...DEFAULT_SETTINGS, ...data };
     if (!Array.isArray(this.settings.providers)) this.settings.providers = DEFAULT_SETTINGS.providers;
     if (!this.settings.activeProviderId && this.settings.providers[0]) this.settings.activeProviderId = this.settings.providers[0].id;
     // 迁移：OpenAI 官方地址默认改用 Responses 接口（推理模型 + 工具调用必须走这个接口）

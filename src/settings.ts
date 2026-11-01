@@ -124,7 +124,7 @@ export class AgentSettingTab extends PluginSettingTab {
       .setName("添加提供商")
       .setDesc("从预设创建，之后可修改地址和模型")
       .addDropdown((d) => {
-        PRESETS.forEach((p, i) => d.addOption(String(i), p.label));
+        for (const [i, p] of PRESETS.entries()) d.addOption(String(i), p.label);
         d.setValue(String(this.presetIndex));
         d.onChange((v) => (this.presetIndex = Number(v)));
       })
@@ -144,7 +144,7 @@ export class AgentSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("界面").setHeading();
     new Setting(containerEl)
       .setName("面板位置")
-      .setDesc("“右侧边栏（上下分屏）”会让 Agent 和大纲等面板同时显示，不再互相遮挡。也可以直接拖动面板的标签到任意位置。")
+      .setDesc("“右侧边栏（上下分屏）”会让对话面板和大纲等面板同时显示，不再互相遮挡。也可以直接拖动面板的标签到任意位置。")
       .addDropdown((d) =>
         d
           .addOption("right-split", "右侧边栏 · 上下分屏（推荐）")
@@ -178,7 +178,7 @@ export class AgentSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("单次最多步骤数")
-      .setDesc("一次请求中 Agent 最多调用多少轮工具，防止死循环")
+      .setDesc("一次请求中助手最多调用多少轮工具，防止死循环")
       .addText((t) =>
         t.setValue(String(s.maxSteps)).onChange(async (v) => {
           const n = parseInt(v);
@@ -207,7 +207,7 @@ export class AgentSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("系统提示词")
-      .setDesc("定义 Agent 的角色和规则")
+      .setDesc("定义助手的角色和规则")
       .addExtraButton((b) =>
         b.setIcon("rotate-ccw").setTooltip("恢复默认").onClick(async () => {
           s.systemPrompt = DEFAULT_SYSTEM_PROMPT;
@@ -217,9 +217,9 @@ export class AgentSettingTab extends PluginSettingTab {
       );
     const ta = containerEl.createEl("textarea", { cls: "aiac-system-prompt" });
     ta.value = s.systemPrompt;
-    ta.addEventListener("change", async () => {
+    ta.addEventListener("change", () => {
       s.systemPrompt = ta.value;
-      await this.plugin.saveSettings();
+      void this.plugin.saveSettings();
     });
 
     containerEl.createEl("p", {
@@ -264,11 +264,11 @@ export class AgentSettingTab extends PluginSettingTab {
 
     new Setting(box)
       .setName("接口协议")
-      .setDesc("OpenAI 官方（尤其是推理模型）选 Responses；DeepSeek、Kimi、通义等第三方选 OpenAI 兼容；Claude 官方选 Anthropic")
+      .setDesc("OpenAI 官方（尤其是推理模型）选第一项；其他第三方服务选兼容接口；Claude 官方选 Anthropic")
       .addDropdown((d) =>
         d
-          .addOption("openai-responses", "OpenAI Responses（OpenAI 官方，推荐）")
-          .addOption("openai", "OpenAI 兼容 Chat Completions")
+          .addOption("openai-responses", "官方 OpenAI 接口（推荐）")
+          .addOption("openai", "OpenAI 兼容接口（第三方）")
           .addOption("anthropic", "Anthropic")
           .setValue(p.kind).onChange(async (v) => {
           p.kind = v as ProviderKind;
@@ -284,7 +284,7 @@ export class AgentSettingTab extends PluginSettingTab {
 
     new Setting(box).setName("API key").addText((t) => {
       t.inputEl.type = "password";
-      t.setPlaceholder("sk-...").setValue(p.apiKey).onChange(async (v) => { p.apiKey = v.trim(); await this.plugin.saveSettings(); });
+      t.setValue(p.apiKey).onChange(async (v) => { p.apiKey = v.trim(); await this.plugin.saveSettings(); });
     });
 
     const modelSetting = new Setting(box).setName("模型").setDesc("需要支持工具调用（function calling）的模型");
@@ -328,11 +328,11 @@ export class AgentSettingTab extends PluginSettingTab {
       .addDropdown((d) =>
         d
           .addOption("", "模型默认")
-          .addOption("none", "none（关闭推理）")
-          .addOption("minimal", "minimal")
-          .addOption("low", "low")
-          .addOption("medium", "medium")
-          .addOption("high", "high")
+          .addOption("none", "None（关闭推理）")
+          .addOption("minimal", "Minimal")
+          .addOption("low", "Low")
+          .addOption("medium", "Medium")
+          .addOption("high", "High")
           .setValue(p.reasoningEffort ?? "")
           .onChange(async (v) => {
             p.reasoningEffort = v as ReasoningEffort;
@@ -363,7 +363,7 @@ const NON_CHAT = /(tts|transcribe|whisper|embedding|embed|dall-e|image|moderatio
 
 class ModelPickerModal extends FuzzySuggestModal<string> {
   private models: string[];
-  constructor(app: App, models: string[], private onPick: (m: string) => void) {
+  constructor(app: App, models: string[], private onPick: (m: string) => Promise<void>) {
     super(app);
     // 对话模型在前，同组内按名称倒序（新版本号通常排在前面）
     this.models = [...models].sort((a, b) => {
@@ -374,5 +374,5 @@ class ModelPickerModal extends FuzzySuggestModal<string> {
   }
   getItems() { return this.models; }
   getItemText(m: string) { return m; }
-  onChooseItem(m: string) { this.onPick(m); }
+  onChooseItem(m: string) { void this.onPick(m); }
 }

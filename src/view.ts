@@ -46,7 +46,7 @@ export class AgentView extends ItemView {
   }
 
   getViewType() { return VIEW_TYPE; }
-  getDisplayText() { return "AI Agent"; }
+  getDisplayText() { return "AI 助手"; }
   getIcon() { return "bot"; }
 
   async onOpen() {
@@ -83,7 +83,7 @@ export class AgentView extends ItemView {
     });
     this.inputEl.addEventListener("keydown", (e) => {
       // isComposing：中文输入法选词时按回车不应发送
-      if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         void this.onSend();
       }
@@ -162,7 +162,7 @@ export class AgentView extends ItemView {
 
   private renderWelcome() {
     const w = this.messagesEl.createDiv({ cls: "aiac-welcome" });
-    w.createEl("h4", { text: "👋 我是你的笔记 Agent" });
+    w.createEl("h4", { text: "👋 我是你的笔记助手" });
     w.createEl("p", { text: "我可以读取、搜索、新建和修改仓库里的笔记。试试：" });
     const list = w.createDiv({ cls: "aiac-quick" });
     for (const q of QUICK_PROMPTS) {
@@ -202,7 +202,7 @@ export class AgentView extends ItemView {
     const toolEls = new Map<string, HTMLElement>();
     try {
       await this.agent.run(provider, this.systemPrompt(), this.buildUserMessage(text), this.plugin.settings.maxSteps, {
-        onAssistant: (t, meta) => this.renderAssistant(t, meta),
+        onAssistant: (t, meta) => void this.renderAssistant(t, meta),
         onToolStart: (c) => toolEls.set(c.id, this.renderToolStart(c)),
         onToolEnd: (c, r) => this.renderToolEnd(toolEls.get(c.id), c, r),
         onStatus: (s) => this.statusEl.setText(s),
@@ -255,9 +255,10 @@ export class AgentView extends ItemView {
 
   private summarizeArgs(call: ToolCall): string {
     try {
-      const a = JSON.parse(call.arguments || "{}");
-      if (a.path && a.new_path) return `${a.path} → ${a.new_path}`;
-      return a.path ?? a.query ?? a.folder ?? "";
+      const a = JSON.parse(call.arguments || "{}") as Record<string, unknown>;
+      const s = (k: string): string => { const v = a[k]; return typeof v === "string" ? v : ""; };
+      if (s("path") && s("new_path")) return `${s("path")} → ${s("new_path")}`;
+      return s("path") || s("query") || s("folder");
     } catch { return ""; }
   }
 
