@@ -24,6 +24,7 @@ Chat with OpenAI, Claude, DeepSeek or any OpenAI-compatible model in an Obsidian
 - Right-click selected text → **Send to AI Agent**.
 - Shows the model name actually returned by the API and token usage under each reply.
 - Panel can sit in the right sidebar (split with the outline), the left sidebar, or the editor area.
+- Settings are searchable from Obsidian's settings search (Obsidian 1.13+). Each provider has its own settings page; providers without an API key are flagged.
 
 > The current UI is in Simplified Chinese.
 
@@ -83,6 +84,7 @@ zhang33 · [zyb@zhang33.net](mailto:zyb@zhang33.net) · part of [OpenCenter](htt
 - 自动把当前笔记和选中文本作为上下文；右键选中文本可「发送给 AI Agent」。
 - 每条回复下方显示 API 返回的实际模型名和 token 用量。
 - 面板可以放在右侧边栏（与大纲上下分屏）、左侧边栏或编辑区。
+- 支持 Obsidian 设置搜索（1.13+）：每个提供商有独立的设置子页面，缺少 API Key 的会显示警告。
 
 ### 使用前须知
 
