@@ -5,7 +5,7 @@ import type { ToolCall } from "./llm";
 import { ToolResult, WRITE_TOOLS } from "./tools";
 import { diffStats, lineDiff, renderDiff } from "./diff";
 
-export const VIEW_TYPE = "notewright-view";
+export const VIEW_TYPE = "ai-note-agent-view";
 
 const TOOL_LABELS: Record<string, string> = {
   get_current_note: "读取当前笔记",
