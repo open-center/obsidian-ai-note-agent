@@ -10,7 +10,14 @@
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint ."
 	},
-	"keywords": ["obsidian", "ai", "agent", "openai", "claude", "llm"],
+	"keywords": [
+		"obsidian",
+		"ai",
+		"agent",
+		"openai",
+		"claude",
+		"llm"
+	],
 	"license": "MIT",
 	"devDependencies": {
 		"@eslint/js": "^9.39.4",
@@ -23,5 +30,10 @@
 		"obsidian": "latest",
 		"typescript": "^5.8.3",
 		"typescript-eslint": "^8.59.1"
+	},
+	"author": "zhang33 <zyb@zhang33.net>",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/open-center/obsidian-ai-agent.git"
 	}
 }

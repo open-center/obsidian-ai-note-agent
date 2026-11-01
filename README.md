@@ -61,6 +61,10 @@ npm run lint     # Obsidian's official ESLint rules
 
 Releases are built by GitHub Actions: bump the version with `npm version patch|minor|major`, push the tag, and publish the draft release that the workflow creates.
 
+## Author
+
+zhang33 · [zyb@zhang33.net](mailto:zyb@zhang33.net) · part of [OpenCenter](https://github.com/open-center)
+
 ## License
 
 [MIT](LICENSE)
@@ -95,5 +99,7 @@ npm run dev
 npm run build
 npm run lint
 ```
+
+作者：zhang33（zyb@zhang33.net），OpenCenter 开源项目。
 
 代码结构：`src/main.ts` 插件入口；`src/view.ts` 聊天面板；`src/agent.ts` Agent 循环；`src/llm.ts` 各家接口封装；`src/tools.ts` 笔记工具、确认与撤销；`src/diff.ts` 差异对比；`src/settings.ts` 设置页。
