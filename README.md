@@ -34,7 +34,7 @@ Chat with OpenAI, Claude, DeepSeek or any OpenAI-compatible model in an Obsidian
 - **Network use**: the plugin sends requests **only** to the API endpoint(s) you configure, using Obsidian's `requestUrl`. Depending on your configuration this can be `api.openai.com`, `api.anthropic.com`, `api.deepseek.com`, `generativelanguage.googleapis.com`, `api.moonshot.cn`, `dashscope.aliyuncs.com`, `open.bigmodel.cn`, `api.siliconflow.cn`, `openrouter.ai`, a local Ollama server (`localhost:11434`), or any custom URL you enter. It is needed to send your messages to the model and receive its replies.
 - **What is sent**: your chat messages, the path of the active note and the selected text, and the content of any notes the model chooses to read through the tools above. Nothing is sent until you press Send.
 - **No telemetry, no ads, no third-party servers.** The plugin has no backend of its own.
-- **Storage**: API keys are stored in plain text in the plugin's `data.json` inside your vault's config folder. If you sync or publish your vault, exclude that file.
+- **Storage**: on Obsidian 1.11.4+ API keys are kept in Obsidian's secret storage (the operating system's keychain), not in the plugin's `data.json`, so they are not synced or published with your vault; on another device, enter the key once more. Keys saved by earlier versions are moved there automatically. On older Obsidian versions keys fall back to plain text in `data.json`; exclude that file if you sync or publish your vault.
 - The plugin only accesses files inside your vault.
 
 ## Installation
@@ -91,7 +91,7 @@ zhang33 · [zyb@zhang33.net](mailto:zyb@zhang33.net) · part of [OpenCenter](htt
 - **需要你自己的 API Key**（OpenAI、Anthropic、DeepSeek 等），大多数服务按 token 收费。本地 Ollama 无需 Key。
 - **网络访问**：插件只会访问你在设置里配置的 API 地址，用于把消息发给模型并取回回复；没有遥测、没有广告、没有自己的服务器。
 - **发送的内容**：你的消息、当前笔记路径与选中文本，以及模型通过工具主动读取的笔记内容。
-- **API Key 明文保存**在仓库配置目录下本插件的 `data.json` 中，同步或公开仓库时请排除该文件。
+- **API Key 存储**：Obsidian 1.11.4 及以上版本，API Key 保存在 Obsidian 的系统密钥存储（操作系统钥匙串）中，不写入 `data.json`，也不会随仓库同步或公开；换设备使用需重新填写一次。旧版本保存的 Key 会自动迁移。更早的 Obsidian 版本仍以明文保存在 `data.json`，同步或公开仓库时请排除该文件。
 
 ### 开发
 
