@@ -64,3 +64,15 @@
 .aiac-provider-box { border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 0 12px; margin-bottom: 12px; }
 .aiac-system-prompt { width: 100%; min-height: 220px; font-size: var(--font-ui-small); margin-bottom: 12px; }
 .aiac-meta { margin-top: 6px; font-size: var(--font-ui-smaller); color: var(--text-faint); font-family: var(--font-monospace); }
+
+.aiac-hidden { display: none; }
+.aiac-root.is-dragover { outline: 2px dashed var(--interactive-accent); outline-offset: -4px; }
+.aiac-input-tools { display: flex; gap: 2px; }
+.aiac-attachments { display: flex; flex-wrap: wrap; gap: 4px; max-height: 96px; overflow-y: auto; }
+.aiac-attachments:empty { display: none; }
+.aiac-att-chip { cursor: default; max-width: 220px; }
+.aiac-att-name { overflow: hidden; text-overflow: ellipsis; }
+.aiac-att-remove { display: inline-flex; cursor: pointer; opacity: 0.6; }
+.aiac-att-remove:hover { opacity: 1; }
+.aiac-user-atts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.aiac-user-att { font-size: var(--font-ui-smaller); padding: 0 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.18); }
