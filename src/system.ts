@@ -1,11 +1,11 @@
 import { App, FileSystemAdapter, Platform } from "obsidian";
 import type { ToolSpec } from "./llm";
-import { confirmChange } from "./diff";
+import type { PermissionGate, PermissionKey } from "./permissions";
 import type { ToolResult } from "./tools";
 
 /**
  * 控制本地软件：启动应用、用默认程序打开文件/网址、执行 shell 命令。
- * 仅桌面端可用（依赖 Electron / Node），需要在设置中开启；除 get_system_info 外每次都弹窗确认。
+ * 仅桌面端可用（依赖 Electron / Node），需要在设置中开启；除 get_system_info 外都按权限模式确认。
  */
 
 type ToolArgs = Record<string, unknown>;
@@ -81,7 +81,7 @@ export function systemControlSupported(): boolean {
 }
 
 export class SystemTools {
-  constructor(private app: App) {}
+  constructor(private app: App, private gate: PermissionGate) {}
 
   // Node / Electron 模块只在桌面端按需加载，避免移动端加载插件时报错
   private cp(): ChildProcess {
@@ -112,8 +112,8 @@ export class SystemTools {
     return /^[a-z][a-z0-9+.-]*:/i.test(s) && !/^[a-z]:[\\/]/i.test(s);
   }
 
-  private confirm(title: string, desc: string, detail: string): Promise<boolean> {
-    return confirmChange(this.app, title, desc, null, null, { code: detail, okText: "允许执行" });
+  private confirm(key: PermissionKey, title: string, desc: string, detail: string): Promise<boolean> {
+    return this.gate.confirm(key, title, desc, null, null, { code: detail, okText: "允许执行" });
   }
 
   async run(name: string, argsJson: string): Promise<ToolResult> {
@@ -164,7 +164,7 @@ export class SystemTools {
     else if (Platform.isWin) { file = "cmd.exe"; argv = ["/c", "start", '""', ...[app, ...(t ? [t] : [])].map((a) => (/\s/.test(a) ? `"${a}"` : a))]; }
     else { file = app; argv = t ? [t] : []; }
     const display = [file, ...argv].map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(" ");
-    if (!(await this.confirm("启动本地应用", `Agent 想要启动「${app}」${t ? "并打开：" + t : ""}`, display))) {
+    if (!(await this.confirm("system-open", "启动本地应用", `Agent 想要启动「${app}」${t ? "并打开：" + t : ""}`, display))) {
       return { output: "用户拒绝了启动该应用。" };
     }
     await new Promise<void>((resolve, reject) => {
@@ -183,7 +183,7 @@ export class SystemTools {
     if (!raw) throw new Error("target 不能为空");
     const url = this.isUrl(raw);
     const t = url ? raw : this.resolve(raw);
-    if (!(await this.confirm("用默认程序打开", url ? "Agent 想要打开网址：" : "Agent 想要用系统默认程序打开：", t))) {
+    if (!(await this.confirm("system-open", "用默认程序打开", url ? "Agent 想要打开网址：" : "Agent 想要用系统默认程序打开：", t))) {
       return { output: "用户拒绝了打开。" };
     }
     if (url) await this.shell().openExternal(t);
@@ -198,7 +198,7 @@ export class SystemTools {
     if (!command.trim()) throw new Error("command 不能为空");
     const dir = cwd.trim() ? this.resolve(cwd) : this.vaultPath();
     const timeout = Math.min(Math.max(timeoutSec, 1), 600) * 1000;
-    if (!(await this.confirm("执行本地命令", `工作目录：${dir}`, command))) {
+    if (!(await this.confirm("system-shell", "执行本地命令", `工作目录：${dir}`, command))) {
       return { output: "用户拒绝了执行该命令。" };
     }
     const shell = Platform.isWin ? undefined : (env("SHELL") ?? "/bin/sh");

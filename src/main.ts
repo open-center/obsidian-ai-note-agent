@@ -4,16 +4,19 @@ import type { ProviderConfig } from "./llm";
 import { EditorContext, VaultTools } from "./tools";
 import { AgentView, VIEW_TYPE } from "./view";
 import { migrateApiKeys } from "./secrets";
+import { normalizePermissions, PermissionGate } from "./permissions";
 
 export default class AIAgentPlugin extends Plugin {
   settings!: AgentSettings;
   tools!: VaultTools;
+  permissions!: PermissionGate;
   /** 用户切换到聊天面板前，最后一次聚焦的 Markdown 编辑器 */
   private lastMarkdownView: MarkdownView | null = null;
 
   async onload() {
     await this.loadSettings();
-    this.tools = new VaultTools(this.app, () => this.settings, () => this.editorContext());
+    this.permissions = new PermissionGate(this.app, () => this.settings, () => this.saveSettings());
+    this.tools = new VaultTools(this.app, () => this.settings, () => this.editorContext(), this.permissions, this.manifest.id, () => this.markdownView());
 
     this.registerView(VIEW_TYPE, (leaf) => new AgentView(leaf, this));
     this.addRibbonIcon("bot", "打开 AI 对话面板", () => void this.activateView());
@@ -65,10 +68,14 @@ export default class AIAgentPlugin extends Plugin {
 
   onunload() {}
 
+  /** 用户最后打开的 Markdown 编辑器（已关闭则为 null） */
+  markdownView(): MarkdownView | null {
+    const view = this.lastMarkdownView;
+    return view && view.file ? view : null;
+  }
+
   editorContext(): EditorContext {
-    let view = this.lastMarkdownView;
-    // 视图已关闭则失效
-    if (view && !view.file) view = null;
+    const view = this.markdownView();
     const file: TFile | null = view?.file ?? this.app.workspace.getActiveFile();
     let selection = "";
     try { selection = view?.editor?.getSelection() ?? ""; } catch { /* ignore */ }
@@ -112,18 +119,18 @@ export default class AIAgentPlugin extends Plugin {
   async relocateView() {
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
     const oldView = leaves[0]?.view instanceof AgentView ? leaves[0].view : null;
-    const agent = oldView?.agent;
-    const nodes = oldView ? oldView.takeMessages() : null;
+    const sessions = oldView ? oldView.takeSessions() : [];
     for (const l of leaves) l.detach();
     this.settings.appliedPanelPosition = "";
     const view = await this.activateView();
-    if (view && agent && !agent.running) view.restore(agent, nodes);
+    view?.restoreSessions(sessions);
   }
 
   async loadSettings() {
     const data = ((await this.loadData()) ?? {}) as Partial<AgentSettings>;
     this.settings = { ...DEFAULT_SETTINGS, ...data };
     if (!Array.isArray(this.settings.providers)) this.settings.providers = DEFAULT_SETTINGS.providers;
+    normalizePermissions(this.settings);
     if (!this.settings.activeProviderId && this.settings.providers[0]) this.settings.activeProviderId = this.settings.providers[0].id;
     // 迁移：OpenAI 官方地址默认改用 Responses 接口（推理模型 + 工具调用必须走这个接口）
     if (!this.settings.migratedResponses) {
@@ -140,7 +147,7 @@ export default class AIAgentPlugin extends Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
-      if (leaf.view instanceof AgentView) leaf.view.refreshProviders();
+      if (leaf.view instanceof AgentView) { leaf.view.refreshProviders(); leaf.view.refreshPermissionMode(); }
     }
   }
 }

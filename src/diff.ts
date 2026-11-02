@@ -6,7 +6,12 @@ export interface ConfirmOptions {
   code?: string;
   /** 确认按钮文字，默认“应用修改” */
   okText?: string;
+  /** 操作类型名称；提供时额外显示“始终允许”按钮 */
+  grantLabel?: string;
 }
+
+/** 用户在确认弹窗中的选择：拒绝 / 允许这一次 / 始终允许这类操作 */
+export type PermissionDecision = "deny" | "once" | "always";
 
 export type DiffLine = { type: "same" | "add" | "del"; text: string };
 
@@ -80,7 +85,7 @@ export class ConfirmChangeModal extends Modal {
     private description: string,
     private before: string | null,
     private after: string | null,
-    private resolve: (ok: boolean) => void,
+    private resolve: (decision: PermissionDecision) => void,
     private options: ConfirmOptions = {},
   ) {
     super(app);
@@ -99,23 +104,27 @@ export class ConfirmChangeModal extends Modal {
     }
     if (this.options.code) contentEl.createEl("pre", { cls: "aiac-confirm-code", text: this.options.code });
     const btns = contentEl.createDiv({ cls: "aiac-modal-buttons" });
-    btns.createEl("button", { text: "拒绝" }).onclick = () => this.finish(false);
+    btns.createEl("button", { text: "拒绝" }).onclick = () => this.finish("deny");
+    if (this.options.grantLabel) {
+      btns.createEl("button", { text: "始终允许此类操作", attr: { "aria-label": `之后「${this.options.grantLabel}」将直接执行，不再询问` } })
+        .onclick = () => this.finish("always");
+    }
     const ok = btns.createEl("button", { text: this.options.okText ?? "应用修改", cls: "mod-cta" });
-    ok.onclick = () => this.finish(true);
+    ok.onclick = () => this.finish("once");
     window.setTimeout(() => ok.focus(), 50);
   }
 
-  private finish(v: boolean) {
+  private finish(v: PermissionDecision) {
     if (!this.resolved) { this.resolved = true; this.resolve(v); }
     this.close();
   }
 
   onClose() {
-    if (!this.resolved) { this.resolved = true; this.resolve(false); }
+    if (!this.resolved) { this.resolved = true; this.resolve("deny"); }
     this.contentEl.empty();
   }
 }
 
-export function confirmChange(app: App, title: string, description: string, before: string | null, after: string | null, options?: ConfirmOptions): Promise<boolean> {
+export function askPermission(app: App, title: string, description: string, before: string | null, after: string | null, options?: ConfirmOptions): Promise<PermissionDecision> {
   return new Promise((resolve) => new ConfirmChangeModal(app, title, description, before, after, resolve, options).open());
 }

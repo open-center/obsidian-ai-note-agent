@@ -127,6 +127,39 @@ function parseError(status: number, text: string): string {
   }
 }
 
+/** 带 HTTP 状态码的请求错误；retryAfterMs 是服务器建议的等待时间 */
+export class HttpError extends Error {
+  constructor(message: string, readonly status: number, readonly retryAfterMs?: number) {
+    super(message);
+  }
+}
+
+/** 解析 “880ms” “1.5s” “1m30s” 这类时长 */
+function parseDuration(s: string): number | undefined {
+  let ms = 0;
+  let matched = false;
+  for (const m of s.matchAll(/(\d+(?:\.\d+)?)\s*(ms|s|m|h)/g)) {
+    matched = true;
+    const n = parseFloat(m[1]);
+    ms += m[2] === "ms" ? n : m[2] === "s" ? n * 1000 : m[2] === "m" ? n * 60_000 : n * 3_600_000;
+  }
+  return matched ? Math.ceil(ms) : undefined;
+}
+
+/** 从响应头和错误信息里找服务器建议的重试等待时间 */
+function retryAfter(headers: Record<string, string>, text: string): number | undefined {
+  const h = (k: string) => headers[k] ?? headers[k.toLowerCase()];
+  const ms = Number(h("retry-after-ms"));
+  if (ms > 0) return ms;
+  const sec = Number(h("retry-after"));
+  if (sec > 0) return sec * 1000;
+  const reset = h("x-ratelimit-reset-tokens") ?? h("x-ratelimit-reset-requests");
+  const fromReset = reset ? parseDuration(reset) : undefined;
+  if (fromReset) return fromReset;
+  const m = text.match(/try again in ([\d.]+\s*(?:ms|s|m))/i);
+  return m ? parseDuration(m[1]) : undefined;
+}
+
 async function postJson<T>(url: string, headers: Record<string, string>, body: unknown): Promise<T> {
   // requestUrl 走 Obsidian 的原生网络层，可绕过浏览器 CORS 限制
   const res = await requestUrl({
@@ -136,7 +169,9 @@ async function postJson<T>(url: string, headers: Record<string, string>, body: u
     body: JSON.stringify(body),
     throw: false,
   });
-  if (res.status < 200 || res.status >= 300) throw new Error(parseError(res.status, res.text));
+  if (res.status < 200 || res.status >= 300) {
+    throw new HttpError(parseError(res.status, res.text), res.status, retryAfter(res.headers ?? {}, res.text));
+  }
   return res.json as T;
 }
 
@@ -360,11 +395,59 @@ async function chatAnthropic(p: ProviderConfig, system: string, messages: ChatMe
   return { content, toolCalls, model: json.model, usage: { input: json.usage?.input_tokens, output: json.usage?.output_tokens } };
 }
 
-export async function chat(p: ProviderConfig, system: string, messages: ChatMessage[], tools: ToolSpec[]): Promise<LLMResponse> {
+export interface RetryOptions {
+  /** 即将等待 waitMs 后进行第 attempt 次重试 */
+  onRetry?(attempt: number, waitMs: number, reason: string): void;
+  /** 用户停止任务时返回 true，立即放弃等待 */
+  isAborted?(): boolean;
+}
+
+/** 限流、服务繁忙、网络故障时的最大重试次数 */
+const MAX_RETRIES = 10;
+/** 单次等待上限 */
+const MAX_WAIT_MS = 60_000;
+
+/** 判断错误是否值得重试；额度用完、密钥错误等重试也没用 */
+function retryReason(e: unknown): string | null {
+  if (e instanceof HttpError) {
+    if (e.status === 429) return /insufficient_quota|exceeded your current quota|billing/i.test(e.message) ? null : "触发限流";
+    if (e.status === 408 || e.status === 409 || e.status === 425) return "请求超时";
+    if (e.status === 529 || e.status === 503) return "服务繁忙";
+    if (e.status >= 500) return "服务器出错";
+    return null;
+  }
+  // requestUrl 在断网、连接被重置时直接抛出普通错误
+  return /net::|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|network/i.test(String((e as Error)?.message ?? e)) ? "网络异常" : null;
+}
+
+/** 可被停止打断的等待 */
+async function wait(ms: number, isAborted?: () => boolean) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (isAborted?.()) return;
+    await new Promise((r) => window.setTimeout(r, Math.min(250, end - Date.now())));
+  }
+}
+
+export async function chat(p: ProviderConfig, system: string, messages: ChatMessage[], tools: ToolSpec[], retry: RetryOptions = {}): Promise<LLMResponse> {
   if (!p.model) throw new Error(`提供商「${p.name}」还没有填写模型名称`);
-  if (p.kind === "anthropic") return chatAnthropic(p, system, messages, tools);
-  if (p.kind === "openai-responses") return chatResponses(p, system, messages, tools);
-  return chatOpenAI(p, system, messages, tools);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (p.kind === "anthropic") return await chatAnthropic(p, system, messages, tools);
+      if (p.kind === "openai-responses") return await chatResponses(p, system, messages, tools);
+      return await chatOpenAI(p, system, messages, tools);
+    } catch (e) {
+      const reason = retryReason(e);
+      if (!reason || attempt >= MAX_RETRIES || retry.isAborted?.()) throw e;
+      // 优先按服务器建议的时间等待；否则指数退避。加随机抖动，避免多个并行任务同时重试又一起撞上限流
+      const hint = e instanceof HttpError ? e.retryAfterMs : undefined;
+      const backoff = Math.min(MAX_WAIT_MS, 1000 * 2 ** attempt);
+      const ms = Math.min(MAX_WAIT_MS, Math.max(hint ?? 0, hint ? 0 : backoff)) + Math.floor(Math.random() * 500) + 200;
+      retry.onRetry?.(attempt + 1, ms, reason);
+      await wait(ms, () => retry.isAborted?.() ?? false);
+      if (retry.isAborted?.()) throw e;
+    }
+  }
 }
 
 /** 拉取模型列表（用于设置页的“选择模型”按钮） */

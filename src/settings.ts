@@ -3,20 +3,29 @@ import type { SettingDefinitionItem, SettingDefinitionPage } from "obsidian";
 import type AIAgentPlugin from "./main";
 import { chat, listModels, ProviderConfig, ProviderKind, ReasoningEffort } from "./llm";
 import { clearApiKey, keyStorageDescription, readApiKey, withApiKey, writeApiKey } from "./secrets";
+import { ConfirmMode, PERMISSION_KEYS, PERMISSION_LABELS, PermissionKey } from "./permissions";
 
-export type ConfirmMode = "always" | "never";
 export type PanelPosition = "right-split" | "right-tab" | "left-split" | "main-split";
 
 export interface AgentSettings {
   providers: ProviderConfig[];
   activeProviderId: string;
   systemPrompt: string;
+  /** 权限模式：手动确认 / 按授权执行 / 自动执行 */
   confirmMode: ConfirmMode;
+  /** “按授权执行”模式下无需确认的操作类型 */
+  grantedPermissions: PermissionKey[];
   maxSteps: number;
   maxReadChars: number;
   showToolDetails: boolean;
   /** 是否允许 Agent 控制本地软件（启动应用、打开文件、执行命令），仅桌面端 */
   allowSystemControl: boolean;
+  /** 是否允许 Agent 控制 Obsidian 本身（执行命令、启用/停用插件、修改设置） */
+  allowObsidianControl: boolean;
+  /** 是否允许主 Agent 把任务拆分给多个子 Agent 并行执行 */
+  allowSubAgents: boolean;
+  /** 对话超过多少 token 时自动压缩较早的历史，0 表示不压缩 */
+  contextBudget: number;
   panelPosition: PanelPosition;
   /** 上一次实际应用的面板位置，用于在设置变化或升级后把面板挪到新位置 */
   appliedPanelPosition: string;
@@ -73,11 +82,15 @@ export const DEFAULT_SETTINGS: AgentSettings = {
   providers: [newProviderFromPreset(PRESETS[0])],
   activeProviderId: "",
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
-  confirmMode: "always",
+  confirmMode: "manual",
+  grantedPermissions: [],
   maxSteps: 20,
   maxReadChars: 40000,
   showToolDetails: true,
   allowSystemControl: false,
+  allowObsidianControl: true,
+  allowSubAgents: true,
+  contextBudget: 80000,
   panelPosition: "right-split",
   appliedPanelPosition: "",
 };
@@ -98,9 +111,13 @@ const PANEL_OPTIONS: Record<PanelPosition, string> = {
 };
 
 const CONFIRM_OPTIONS: Record<ConfirmMode, string> = {
-  always: "每次确认（推荐）",
-  never: "自动应用",
+  manual: "手动确认（推荐）",
+  grant: "按授权执行",
+  auto: "自动执行",
 };
+
+/** 声明式设置页中授权开关的 key 前缀 */
+const GRANT_PREFIX = "grant:";
 
 const REASONING_OPTIONS: Record<string, string> = {
   "": "模型默认",
@@ -114,10 +131,14 @@ const REASONING_OPTIONS: Record<string, string> = {
 const TEXT = {
   activeDesc: "聊天面板顶部也可以切换",
   panelDesc: "“右侧边栏（上下分屏）”会让对话面板和大纲等面板同时显示，不再互相遮挡。也可以直接拖动面板的标签到任意位置。",
-  confirmDesc: "“每次确认”会弹出差异对比，由你决定是否应用；“自动应用”直接写入（每次修改仍可在聊天面板中撤销）。删除操作始终需要确认。",
+  confirmDesc: "“手动确认”每次操作都弹窗，由你决定是否执行；“按授权执行”对下方勾选的操作直接执行，其余仍弹窗；“自动执行”所有操作都直接执行，不再询问。修改仍可在聊天面板中撤销。聊天面板底部也可以切换。",
+  grantDesc: "在“按授权执行”模式下，勾选的操作直接执行。确认弹窗中点击“始终允许此类操作”也会勾选对应项。",
   maxStepsDesc: "一次请求中助手最多调用多少轮工具，防止死循环",
+  contextDesc: "对话越长，每次请求发给模型的 token 越多，越慢也越容易触发限流。估算超过这个数的一半时，先截短较早的工具结果和附件；超过这个数时，把较早的对话交给模型总结成摘要，只保留最近的消息原文。填 0 关闭压缩。",
   maxReadDesc: "超长笔记会被截断后再发给模型，节省 token",
   promptDesc: "定义助手的角色和规则",
+  obsidianControlDesc: "允许 Agent 执行 Obsidian 命令、启用或停用核心插件和第三方插件、读取和修改应用及插件设置。每次改动都会先弹窗确认，并可在聊天中撤销；疑似密钥的设置项会打码后再给模型；不能控制本插件自身。",
+  subAgentsDesc: "允许 Agent 把大任务拆成多个子任务，同时派给多个子 Agent 并行执行（例如批量整理多篇笔记），完成后汇总结果。子 Agent 使用同一个模型和同样的权限设置，会消耗更多 token。",
   systemControlDesc: "允许 Agent 启动本地应用、用默认程序打开文件或网址、执行 shell 命令（macOS 上还可通过 AppleScript 控制其他应用）。每次操作都会先弹窗显示具体命令，由你确认后才执行。命令以你的用户权限运行，请只在信任所用模型时开启。仅桌面版可用。",
   kindDesc: "OpenAI 官方（尤其是推理模型）选第一项；其他第三方服务选兼容接口；Claude 官方选 Anthropic",
   modelDesc: "需要支持工具调用（function calling）的模型",
@@ -219,9 +240,9 @@ export class AgentSettingTab extends PluginSettingTab {
         ],
         items: [
           {
-            name: "修改笔记前确认",
+            name: "权限模式",
             desc: TEXT.confirmDesc,
-            aliases: ["confirm", "diff", "确认"],
+            aliases: ["confirm", "permission", "auto", "确认", "权限", "授权", "自动"],
             control: { type: "dropdown", key: "confirmMode", options: CONFIRM_OPTIONS },
           },
           {
@@ -235,6 +256,19 @@ export class AgentSettingTab extends PluginSettingTab {
               step: 1,
               defaultValue: DEFAULT_SETTINGS.maxSteps,
               validate: (v) => (Number.isInteger(v) && v > 0 ? undefined : "请输入大于 0 的整数"),
+            },
+          },
+          {
+            name: "自动压缩上下文的阈值（token）",
+            desc: TEXT.contextDesc,
+            aliases: ["context", "compact", "token", "rate limit", "上下文", "压缩", "限流"],
+            control: {
+              type: "number",
+              key: "contextBudget",
+              min: 0,
+              step: 10000,
+              defaultValue: DEFAULT_SETTINGS.contextBudget,
+              validate: (v) => (Number.isInteger(v) && (v === 0 || v >= 10000) ? undefined : "请输入 0 或不小于 10000 的整数"),
             },
           },
           {
@@ -254,6 +288,18 @@ export class AgentSettingTab extends PluginSettingTab {
             control: { type: "toggle", key: "showToolDetails" },
           },
           {
+            name: "允许控制 Obsidian",
+            desc: TEXT.obsidianControlDesc,
+            aliases: ["command", "plugin", "settings", "命令", "插件", "设置"],
+            control: { type: "toggle", key: "allowObsidianControl" },
+          },
+          {
+            name: "允许派出子代理",
+            desc: TEXT.subAgentsDesc,
+            aliases: ["multi agent", "sub agent", "多 agent", "子 agent", "并行"],
+            control: { type: "toggle", key: "allowSubAgents" },
+          },
+          {
             name: "允许控制本地软件",
             desc: TEXT.systemControlDesc,
             aliases: ["shell", "command", "terminal", "app", "本地", "命令", "终端", "应用"],
@@ -268,6 +314,15 @@ export class AgentSettingTab extends PluginSettingTab {
         ],
       },
       {
+        type: "group",
+        heading: "授权的操作",
+        items: PERMISSION_KEYS.map((k) => ({
+          name: PERMISSION_LABELS[k],
+          aliases: ["permission", "授权", "权限"],
+          control: { type: "toggle" as const, key: GRANT_PREFIX + k },
+        })),
+      },
+      {
         name: "API key 的存储位置",
         desc: this.keyStorageNote(),
         aliases: ["api key", "密钥", "安全"],
@@ -276,13 +331,25 @@ export class AgentSettingTab extends PluginSettingTab {
   }
 
   getControlValue(key: string): unknown {
+    if (key.startsWith(GRANT_PREFIX)) return this.plugin.settings.grantedPermissions.includes(key.slice(GRANT_PREFIX.length) as PermissionKey);
     return (this.plugin.settings as unknown as Record<string, unknown>)[key];
   }
 
   async setControlValue(key: string, value: unknown): Promise<void> {
+    if (key.startsWith(GRANT_PREFIX)) {
+      await this.setGranted(key.slice(GRANT_PREFIX.length) as PermissionKey, value === true);
+      return;
+    }
     (this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
     await this.plugin.saveSettings();
     if (key === "panelPosition") await this.plugin.relocateView();
+  }
+
+  private async setGranted(key: PermissionKey, on: boolean) {
+    const s = this.plugin.settings;
+    s.grantedPermissions = s.grantedPermissions.filter((k) => k !== key);
+    if (on) s.grantedPermissions.push(key);
+    await this.plugin.saveSettings();
   }
 
   /**
@@ -563,7 +630,7 @@ export class AgentSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Agent 行为").setHeading();
 
     new Setting(containerEl)
-      .setName("修改笔记前确认")
+      .setName("权限模式")
       .setDesc(TEXT.confirmDesc)
       .addDropdown((d) => {
         for (const [k, label] of Object.entries(CONFIRM_OPTIONS)) d.addOption(k, label);
@@ -573,6 +640,13 @@ export class AgentSettingTab extends PluginSettingTab {
         });
       });
 
+    for (const k of PERMISSION_KEYS) {
+      new Setting(containerEl)
+        .setName(`授权：${PERMISSION_LABELS[k]}`)
+        .setDesc(k === PERMISSION_KEYS[0] ? TEXT.grantDesc : "")
+        .addToggle((t) => t.setValue(s.grantedPermissions.includes(k)).onChange((v) => this.setGranted(k, v)));
+    }
+
     new Setting(containerEl)
       .setName("单次最多步骤数")
       .setDesc(TEXT.maxStepsDesc)
@@ -580,6 +654,16 @@ export class AgentSettingTab extends PluginSettingTab {
         t.setValue(String(s.maxSteps)).onChange(async (v) => {
           const n = parseInt(v);
           if (n > 0) { s.maxSteps = n; await this.plugin.saveSettings(); }
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("自动压缩上下文的阈值（token）")
+      .setDesc(TEXT.contextDesc)
+      .addText((t) =>
+        t.setValue(String(s.contextBudget)).onChange(async (v) => {
+          const n = parseInt(v);
+          if (n === 0 || n >= 10000) { s.contextBudget = n; await this.plugin.saveSettings(); }
         }),
       );
 
@@ -598,6 +682,26 @@ export class AgentSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(s.showToolDetails).onChange(async (v) => {
           s.showToolDetails = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("允许控制 Obsidian")
+      .setDesc(TEXT.obsidianControlDesc)
+      .addToggle((t) =>
+        t.setValue(s.allowObsidianControl).onChange(async (v) => {
+          s.allowObsidianControl = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("允许派出子代理")
+      .setDesc(TEXT.subAgentsDesc)
+      .addToggle((t) =>
+        t.setValue(s.allowSubAgents).onChange(async (v) => {
+          s.allowSubAgents = v;
           await this.plugin.saveSettings();
         }),
       );

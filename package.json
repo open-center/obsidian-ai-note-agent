@@ -1,6 +1,6 @@
 {
 	"name": "ai-note-agent",
-	"version": "1.0.0",
+	"version": "1.2.0",
 	"description": "Chat with OpenAI, Claude, DeepSeek or any OpenAI-compatible model in Obsidian and let it read, search and edit your notes.",
 	"main": "main.js",
 	"type": "module",

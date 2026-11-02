@@ -1,18 +1,22 @@
 import { App, MarkdownView, normalizePath, TFile, TFolder, TAbstractFile } from "obsidian";
 import type { ToolSpec } from "./llm";
-import { confirmChange } from "./diff";
+import type { PermissionGate, PermissionKey } from "./permissions";
 import type { AgentSettings } from "./settings";
 import { extractText, extOf, isDocumentExt, isImageExt } from "./attachments";
+import { CONTROL_TOOL_NAMES, CONTROL_TOOL_SPECS, CONTROL_WRITE_TOOLS, ControlUndo, ObsidianTools } from "./control";
 import { SYSTEM_TOOL_NAMES, SYSTEM_TOOL_SPECS, SystemTools, systemControlSupported } from "./system";
 
 /** 一次可撤销的改动 */
 export interface ChangeRecord {
-  kind: "write" | "move" | "delete";
+  /** control：控制 Obsidian 的操作（设置、插件开关），撤销信息在 control 中 */
+  kind: "write" | "move" | "delete" | "control";
+  /** 文件路径；kind 为 control 时是操作的简短描述 */
   path: string;
   /** 修改前内容；null 表示原本不存在 */
   before: string | null;
   after: string | null;
   fromPath?: string;
+  control?: ControlUndo;
 }
 
 export interface ToolResult {
@@ -122,13 +126,22 @@ export const TOOL_SPECS: ToolSpec[] = [
   },
 ];
 
-export const WRITE_TOOLS = new Set(["edit_note", "write_note", "create_note", "append_to_note", "move_note", "delete_note", "create_folder", ...[...SYSTEM_TOOL_NAMES].filter((n) => n !== "get_system_info")]);
+export const WRITE_TOOLS = new Set(["edit_note", "write_note", "create_note", "append_to_note", "move_note", "delete_note", "create_folder", ...[...SYSTEM_TOOL_NAMES].filter((n) => n !== "get_system_info"), ...CONTROL_WRITE_TOOLS]);
 
 export class VaultTools {
   private system: SystemTools;
+  private obsidian: ObsidianTools;
 
-  constructor(private app: App, private getSettings: () => AgentSettings, private getEditorCtx: () => EditorContext) {
-    this.system = new SystemTools(app);
+  constructor(
+    private app: App,
+    private getSettings: () => AgentSettings,
+    private getEditorCtx: () => EditorContext,
+    private gate: PermissionGate,
+    selfId: string,
+    getMarkdownView: () => MarkdownView | null,
+  ) {
+    this.system = new SystemTools(app, gate);
+    this.obsidian = new ObsidianTools(app, gate, selfId, getMarkdownView);
   }
 
   /** 是否向模型提供本地控制工具：设置已开启且运行在桌面端 */
@@ -138,7 +151,11 @@ export class VaultTools {
 
   /** 本轮请求提供给模型的工具 */
   specs(): ToolSpec[] {
-    return this.systemEnabled() ? [...TOOL_SPECS, ...SYSTEM_TOOL_SPECS] : TOOL_SPECS;
+    return [
+      ...TOOL_SPECS,
+      ...(this.getSettings().allowObsidianControl ? CONTROL_TOOL_SPECS : []),
+      ...(this.systemEnabled() ? SYSTEM_TOOL_SPECS : []),
+    ];
   }
 
   // ---------- 路径辅助 ----------
@@ -175,9 +192,8 @@ export class VaultTools {
     return text.length > max ? text.slice(0, max) + `\n\n…[内容过长，已截断，共 ${text.length} 字符]` : text;
   }
 
-  private confirm(title: string, desc: string, before: string | null, after: string | null, force = false): Promise<boolean> {
-    if (!force && this.getSettings().confirmMode === "never") return Promise.resolve(true);
-    return confirmChange(this.app, title, desc, before, after);
+  private confirm(key: PermissionKey, title: string, desc: string, before: string | null, after: string | null): Promise<boolean> {
+    return this.gate.confirm(key, title, desc, before, after);
   }
 
   // ---------- 执行 ----------
@@ -186,6 +202,10 @@ export class VaultTools {
     if (SYSTEM_TOOL_NAMES.has(name)) {
       if (!this.systemEnabled()) return { output: "本地控制已在设置中关闭，无法执行。", isError: true };
       return this.system.run(name, argsJson);
+    }
+    if (CONTROL_TOOL_NAMES.has(name)) {
+      if (!this.getSettings().allowObsidianControl) return { output: "控制 Obsidian 已在设置中关闭，无法执行。", isError: true };
+      return this.obsidian.run(name, argsJson);
     }
     let args: ToolArgs;
     try {
@@ -335,7 +355,7 @@ export class VaultTools {
     const f = this.findFile(path);
     const np = this.withMd(this.clean(newPath));
     if (this.app.vault.getAbstractFileByPath(np)) throw new Error(`目标已存在：${np}`);
-    if (!(await this.confirm("移动 / 重命名笔记", `${f.path}  →  ${np}`, null, null))) return { output: "用户拒绝了这次移动。" };
+    if (!(await this.confirm("note-move", "移动 / 重命名笔记", `${f.path}  →  ${np}`, null, null))) return { output: "用户拒绝了这次移动。" };
     const from = f.path;
     await this.ensureParent(np);
     await this.app.fileManager.renameFile(f, np);
@@ -345,7 +365,7 @@ export class VaultTools {
   private async deleteNote(path: string): Promise<ToolResult> {
     const f = this.findFile(path);
     const before = await this.app.vault.read(f);
-    if (!(await this.confirm("删除笔记（移到回收站）", f.path, before, "", true))) return { output: "用户拒绝了删除。" };
+    if (!(await this.confirm("note-delete", "删除笔记（移到回收站）", f.path, before, ""))) return { output: "用户拒绝了删除。" };
     await this.trash(f);
     return { output: `已将 ${f.path} 移到回收站。`, change: { kind: "delete", path: f.path, before, after: null } };
   }
@@ -360,7 +380,7 @@ export class VaultTools {
 
   private async applyWrite(path: string, before: string | null, after: string, title: string): Promise<ToolResult> {
     if (before === after) return { output: "内容没有变化，未写入。" };
-    if (!(await this.confirm(title, "以下是 Agent 计划进行的修改：", before, after))) {
+    if (!(await this.confirm("note-edit", title, "以下是 Agent 计划进行的修改：", before, after))) {
       return { output: "用户拒绝了这次修改，文件未改动。请询问用户希望如何调整。" };
     }
     const existing = this.app.vault.getAbstractFileByPath(path);
@@ -380,6 +400,10 @@ export class VaultTools {
   // ---------- 撤销 ----------
 
   async undo(c: ChangeRecord): Promise<string> {
+    if (c.kind === "control") {
+      if (!c.control) throw new Error("缺少撤销信息");
+      return this.obsidian.undo(c.control);
+    }
     const vault = this.app.vault;
     const get = (p: string): TAbstractFile | null => vault.getAbstractFileByPath(p);
     if (c.kind === "move") {
