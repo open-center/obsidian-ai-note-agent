@@ -1,5 +1,13 @@
 import { App, Modal } from "obsidian";
 
+/** 非文件修改类确认（如执行命令）的附加选项 */
+export interface ConfirmOptions {
+  /** 以等宽代码块显示的内容，例如要执行的命令 */
+  code?: string;
+  /** 确认按钮文字，默认“应用修改” */
+  okText?: string;
+}
+
 export type DiffLine = { type: "same" | "add" | "del"; text: string };
 
 /** 基于 LCS 的行级 diff；超大文件退化为“整体删除 + 整体新增” */
@@ -73,6 +81,7 @@ export class ConfirmChangeModal extends Modal {
     private before: string | null,
     private after: string | null,
     private resolve: (ok: boolean) => void,
+    private options: ConfirmOptions = {},
   ) {
     super(app);
   }
@@ -88,9 +97,10 @@ export class ConfirmChangeModal extends Modal {
       contentEl.createEl("p", { cls: "aiac-muted", text: `+${st.add} 行  −${st.del} 行` });
       renderDiff(contentEl, d);
     }
+    if (this.options.code) contentEl.createEl("pre", { cls: "aiac-confirm-code", text: this.options.code });
     const btns = contentEl.createDiv({ cls: "aiac-modal-buttons" });
     btns.createEl("button", { text: "拒绝" }).onclick = () => this.finish(false);
-    const ok = btns.createEl("button", { text: "应用修改", cls: "mod-cta" });
+    const ok = btns.createEl("button", { text: this.options.okText ?? "应用修改", cls: "mod-cta" });
     ok.onclick = () => this.finish(true);
     window.setTimeout(() => ok.focus(), 50);
   }
@@ -106,6 +116,6 @@ export class ConfirmChangeModal extends Modal {
   }
 }
 
-export function confirmChange(app: App, title: string, description: string, before: string | null, after: string | null): Promise<boolean> {
-  return new Promise((resolve) => new ConfirmChangeModal(app, title, description, before, after, resolve).open());
+export function confirmChange(app: App, title: string, description: string, before: string | null, after: string | null, options?: ConfirmOptions): Promise<boolean> {
+  return new Promise((resolve) => new ConfirmChangeModal(app, title, description, before, after, resolve, options).open());
 }

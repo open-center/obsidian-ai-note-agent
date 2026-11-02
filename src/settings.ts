@@ -15,6 +15,8 @@ export interface AgentSettings {
   maxSteps: number;
   maxReadChars: number;
   showToolDetails: boolean;
+  /** 是否允许 Agent 控制本地软件（启动应用、打开文件、执行命令），仅桌面端 */
+  allowSystemControl: boolean;
   panelPosition: PanelPosition;
   /** 上一次实际应用的面板位置，用于在设置变化或升级后把面板挪到新位置 */
   appliedPanelPosition: string;
@@ -75,6 +77,7 @@ export const DEFAULT_SETTINGS: AgentSettings = {
   maxSteps: 20,
   maxReadChars: 40000,
   showToolDetails: true,
+  allowSystemControl: false,
   panelPosition: "right-split",
   appliedPanelPosition: "",
 };
@@ -115,6 +118,7 @@ const TEXT = {
   maxStepsDesc: "一次请求中助手最多调用多少轮工具，防止死循环",
   maxReadDesc: "超长笔记会被截断后再发给模型，节省 token",
   promptDesc: "定义助手的角色和规则",
+  systemControlDesc: "允许 Agent 启动本地应用、用默认程序打开文件或网址、执行 shell 命令（macOS 上还可通过 AppleScript 控制其他应用）。每次操作都会先弹窗显示具体命令，由你确认后才执行。命令以你的用户权限运行，请只在信任所用模型时开启。仅桌面版可用。",
   kindDesc: "OpenAI 官方（尤其是推理模型）选第一项；其他第三方服务选兼容接口；Claude 官方选 Anthropic",
   modelDesc: "需要支持工具调用（function calling）的模型",
   reasoningDesc: "仅对推理模型（如 GPT-5 / o 系列）有效。越高越聪明但越慢越贵；改笔记这类任务通常 low 或 medium 就够。",
@@ -248,6 +252,12 @@ export class AgentSettingTab extends PluginSettingTab {
           {
             name: "显示工具调用详情",
             control: { type: "toggle", key: "showToolDetails" },
+          },
+          {
+            name: "允许控制本地软件",
+            desc: TEXT.systemControlDesc,
+            aliases: ["shell", "command", "terminal", "app", "本地", "命令", "终端", "应用"],
+            control: { type: "toggle", key: "allowSystemControl" },
           },
           {
             name: "系统提示词",
@@ -588,6 +598,16 @@ export class AgentSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(s.showToolDetails).onChange(async (v) => {
           s.showToolDetails = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("允许控制本地软件")
+      .setDesc(TEXT.systemControlDesc)
+      .addToggle((t) =>
+        t.setValue(s.allowSystemControl).onChange(async (v) => {
+          s.allowSystemControl = v;
           await this.plugin.saveSettings();
         }),
       );

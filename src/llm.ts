@@ -1,4 +1,5 @@
 import { requestUrl } from "obsidian";
+import type { ImageData } from "./attachments";
 
 /**
  * 提供商协议：
@@ -32,7 +33,7 @@ export interface ToolCall {
 }
 
 export type ChatMessage =
-  | { role: "user"; content: string }
+  | { role: "user"; content: string; images?: ImageData[] }
   | {
       role: "assistant";
       content: string;
@@ -148,8 +149,14 @@ function argsToString(a: unknown): string {
 function toOpenAIMessages(system: string, messages: ChatMessage[]): JsonObject[] {
   const out: JsonObject[] = [{ role: "system", content: system }];
   for (const m of messages) {
-    if (m.role === "user") out.push({ role: "user", content: m.content });
-    else if (m.role === "assistant") {
+    if (m.role === "user") {
+      out.push({
+        role: "user",
+        content: m.images?.length
+          ? [{ type: "text", text: m.content }, ...m.images.map((i) => ({ type: "image_url", image_url: { url: `data:${i.mediaType};base64,${i.data}` } }))]
+          : m.content,
+      });
+    } else if (m.role === "assistant") {
       const msg: JsonObject = { role: "assistant", content: m.content || null };
       if (m.toolCalls?.length) {
         msg.tool_calls = m.toolCalls.map((c) => ({
@@ -219,8 +226,14 @@ function sanitizeOutputItem(item: ResponsesOutputItem): JsonObject | null {
 function toResponsesInput(messages: ChatMessage[]): JsonObject[] {
   const out: JsonObject[] = [];
   for (const m of messages) {
-    if (m.role === "user") out.push({ role: "user", content: m.content });
-    else if (m.role === "assistant") {
+    if (m.role === "user") {
+      out.push({
+        role: "user",
+        content: m.images?.length
+          ? [{ type: "input_text", text: m.content }, ...m.images.map((i) => ({ type: "input_image", image_url: `data:${i.mediaType};base64,${i.data}` }))]
+          : m.content,
+      });
+    } else if (m.role === "assistant") {
       if (m.rawOutput?.length) {
         for (const it of m.rawOutput) {
           const x = sanitizeOutputItem(it);
@@ -291,10 +304,14 @@ function toAnthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
   const out: AnthropicMessage[] = [];
   for (const m of messages) {
     if (m.role === "user") {
+      const blocks: JsonObject[] = [
+        ...(m.images ?? []).map((i) => ({ type: "image", source: { type: "base64", media_type: i.mediaType, data: i.data } })),
+        { type: "text", text: m.content },
+      ];
       const last = out[out.length - 1];
       // Anthropic 要求 user/assistant 交替，连续的 user 消息合并
-      if (last && last.role === "user") last.content.push({ type: "text", text: m.content });
-      else out.push({ role: "user", content: [{ type: "text", text: m.content }] });
+      if (last && last.role === "user") last.content.push(...blocks);
+      else out.push({ role: "user", content: blocks });
     } else if (m.role === "assistant") {
       const blocks: JsonObject[] = [];
       if (m.content) blocks.push({ type: "text", text: m.content });

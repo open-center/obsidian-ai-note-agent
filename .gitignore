@@ -20,9 +20,3 @@ data.json
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
-
-# local type-check stubs
-.check/
-
-# local backup
-community-plugins.backup.json

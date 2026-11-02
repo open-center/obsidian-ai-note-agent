@@ -1,5 +1,6 @@
 import { chat, ChatMessage, LLMResponse, ProviderConfig, ToolCall } from "./llm";
-import { TOOL_SPECS, ToolResult, VaultTools } from "./tools";
+import type { ImageData } from "./attachments";
+import { ToolResult, VaultTools } from "./tools";
 
 export interface AgentCallbacks {
   onAssistant(text: string, meta: Pick<LLMResponse, "model" | "usage">): void;
@@ -24,16 +25,16 @@ export class Agent {
     this.aborted = true;
   }
 
-  async run(provider: ProviderConfig, system: string, userText: string, maxSteps: number, cb: AgentCallbacks): Promise<void> {
+  async run(provider: ProviderConfig, system: string, userText: string, maxSteps: number, cb: AgentCallbacks, images: ImageData[] = []): Promise<void> {
     this.aborted = false;
     this.running = true;
     const startLen = this.messages.length;
-    this.messages.push({ role: "user", content: userText });
+    this.messages.push({ role: "user", content: userText, ...(images.length ? { images } : {}) });
     try {
       for (let step = 0; step < maxSteps; step++) {
         if (this.aborted) { cb.onStatus("已停止"); return; }
         cb.onStatus(step === 0 ? "思考中…" : `第 ${step + 1} 步…`);
-        const res = await chat(provider, system, this.messages, TOOL_SPECS);
+        const res = await chat(provider, system, this.messages, this.tools.specs());
         if (this.aborted) { cb.onStatus("已停止"); this.closeDanglingToolCalls(); return; }
 
         this.messages.push({ role: "assistant", content: res.content, toolCalls: res.toolCalls, reasoning: res.reasoning, rawOutput: res.rawOutput });

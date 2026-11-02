@@ -2,6 +2,8 @@ import { App, MarkdownView, normalizePath, TFile, TFolder, TAbstractFile } from 
 import type { ToolSpec } from "./llm";
 import { confirmChange } from "./diff";
 import type { AgentSettings } from "./settings";
+import { extractText, extOf, isDocumentExt, isImageExt } from "./attachments";
+import { SYSTEM_TOOL_NAMES, SYSTEM_TOOL_SPECS, SystemTools, systemControlSupported } from "./system";
 
 /** 一次可撤销的改动 */
 export interface ChangeRecord {
@@ -40,7 +42,7 @@ export const TOOL_SPECS: ToolSpec[] = [
   },
   {
     name: "read_note",
-    description: "读取指定路径的笔记全文。路径相对于仓库根目录，例如 'Projects/计划.md'。可省略 .md 后缀，也可只给文件名。",
+    description: "读取指定路径的笔记全文。路径相对于仓库根目录，例如 'Projects/计划.md'。可省略 .md 后缀，也可只给文件名。也可以读取仓库里的 PDF、Word（.docx）、PowerPoint（.pptx）、Excel（.xlsx）和其他文本文件（提取为纯文本）。",
     parameters: { type: "object", properties: { path: str("笔记路径") }, required: ["path"] },
   },
   {
@@ -120,10 +122,24 @@ export const TOOL_SPECS: ToolSpec[] = [
   },
 ];
 
-export const WRITE_TOOLS = new Set(["edit_note", "write_note", "create_note", "append_to_note", "move_note", "delete_note", "create_folder"]);
+export const WRITE_TOOLS = new Set(["edit_note", "write_note", "create_note", "append_to_note", "move_note", "delete_note", "create_folder", ...[...SYSTEM_TOOL_NAMES].filter((n) => n !== "get_system_info")]);
 
 export class VaultTools {
-  constructor(private app: App, private getSettings: () => AgentSettings, private getEditorCtx: () => EditorContext) {}
+  private system: SystemTools;
+
+  constructor(private app: App, private getSettings: () => AgentSettings, private getEditorCtx: () => EditorContext) {
+    this.system = new SystemTools(app);
+  }
+
+  /** 是否向模型提供本地控制工具：设置已开启且运行在桌面端 */
+  private systemEnabled(): boolean {
+    return this.getSettings().allowSystemControl && systemControlSupported();
+  }
+
+  /** 本轮请求提供给模型的工具 */
+  specs(): ToolSpec[] {
+    return this.systemEnabled() ? [...TOOL_SPECS, ...SYSTEM_TOOL_SPECS] : TOOL_SPECS;
+  }
 
   // ---------- 路径辅助 ----------
 
@@ -167,6 +183,10 @@ export class VaultTools {
   // ---------- 执行 ----------
 
   async run(name: string, argsJson: string): Promise<ToolResult> {
+    if (SYSTEM_TOOL_NAMES.has(name)) {
+      if (!this.systemEnabled()) return { output: "本地控制已在设置中关闭，无法执行。", isError: true };
+      return this.system.run(name, argsJson);
+    }
     let args: ToolArgs;
     try {
       const parsed: unknown = argsJson ? JSON.parse(argsJson) : {};
@@ -209,7 +229,9 @@ export class VaultTools {
 
   private async readNote(path: string): Promise<ToolResult> {
     const f = this.findFile(path);
-    const content = await this.app.vault.read(f);
+    const ext = extOf(f.name);
+    if (isImageExt(ext)) throw new Error(`${f.path} 是图片，无法作为文本读取。可以请用户把它作为附件添加到对话中。`);
+    const content = isDocumentExt(ext) ? await extractText(f.name, await this.app.vault.readBinary(f)) : await this.app.vault.read(f);
     return { output: `路径：${f.path}\n\n<content>\n${this.truncate(content)}\n</content>` };
   }
 
