@@ -31,8 +31,15 @@ export interface ToolCall {
   arguments: string;
 }
 
+/** 发给模型的图片（base64，不含 data: 前缀） */
+export interface ImagePart {
+  mime: string;
+  data: string;
+  name?: string;
+}
+
 export type ChatMessage =
-  | { role: "user"; content: string }
+  | { role: "user"; content: string; images?: ImagePart[] }
   | {
       role: "assistant";
       content: string;
@@ -111,6 +118,8 @@ interface ModelListResponse {
   models?: { id?: string; name?: string }[];
 }
 
+const dataUrl = (img: ImagePart) => `data:${img.mime};base64,${img.data}`;
+
 function joinUrl(base: string, path: string): string {
   return base.replace(/\/+$/, "") + path;
 }
@@ -148,8 +157,14 @@ function argsToString(a: unknown): string {
 function toOpenAIMessages(system: string, messages: ChatMessage[]): JsonObject[] {
   const out: JsonObject[] = [{ role: "system", content: system }];
   for (const m of messages) {
-    if (m.role === "user") out.push({ role: "user", content: m.content });
-    else if (m.role === "assistant") {
+    if (m.role === "user") {
+      if (m.images?.length) {
+        out.push({
+          role: "user",
+          content: [{ type: "text", text: m.content }, ...m.images.map((img) => ({ type: "image_url", image_url: { url: dataUrl(img) } }))],
+        });
+      } else out.push({ role: "user", content: m.content });
+    } else if (m.role === "assistant") {
       const msg: JsonObject = { role: "assistant", content: m.content || null };
       if (m.toolCalls?.length) {
         msg.tool_calls = m.toolCalls.map((c) => ({
@@ -219,8 +234,14 @@ function sanitizeOutputItem(item: ResponsesOutputItem): JsonObject | null {
 function toResponsesInput(messages: ChatMessage[]): JsonObject[] {
   const out: JsonObject[] = [];
   for (const m of messages) {
-    if (m.role === "user") out.push({ role: "user", content: m.content });
-    else if (m.role === "assistant") {
+    if (m.role === "user") {
+      if (m.images?.length) {
+        out.push({
+          role: "user",
+          content: [{ type: "input_text", text: m.content }, ...m.images.map((img) => ({ type: "input_image", image_url: dataUrl(img) }))],
+        });
+      } else out.push({ role: "user", content: m.content });
+    } else if (m.role === "assistant") {
       if (m.rawOutput?.length) {
         for (const it of m.rawOutput) {
           const x = sanitizeOutputItem(it);
@@ -291,10 +312,12 @@ function toAnthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
   const out: AnthropicMessage[] = [];
   for (const m of messages) {
     if (m.role === "user") {
+      const blocks: JsonObject[] = [{ type: "text", text: m.content }];
+      for (const img of m.images ?? []) blocks.push({ type: "image", source: { type: "base64", media_type: img.mime, data: img.data } });
       const last = out[out.length - 1];
-      // Anthropic 要求 user/assistant 交替，连续的 user 消息合并
-      if (last && last.role === "user") last.content.push({ type: "text", text: m.content });
-      else out.push({ role: "user", content: [{ type: "text", text: m.content }] });
+      // Anthropic 要求 user/assistant 交替，连续的 user 消息合并（工具结果之后的图片也合并进同一条消息）
+      if (last && last.role === "user") last.content.push(...blocks);
+      else out.push({ role: "user", content: blocks });
     } else if (m.role === "assistant") {
       const blocks: JsonObject[] = [];
       if (m.content) blocks.push({ type: "text", text: m.content });

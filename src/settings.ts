@@ -15,6 +15,8 @@ export interface AgentSettings {
   maxSteps: number;
   maxReadChars: number;
   showToolDetails: boolean;
+  /** 是否允许 Agent 控制 Obsidian（执行命令、管理插件、修改设置） */
+  allowControl: boolean;
   panelPosition: PanelPosition;
   /** 上一次实际应用的面板位置，用于在设置变化或升级后把面板挪到新位置 */
   appliedPanelPosition: string;
@@ -75,6 +77,7 @@ export const DEFAULT_SETTINGS: AgentSettings = {
   maxSteps: 20,
   maxReadChars: 40000,
   showToolDetails: true,
+  allowControl: true,
   panelPosition: "right-split",
   appliedPanelPosition: "",
 };
@@ -115,6 +118,7 @@ const TEXT = {
   maxStepsDesc: "一次请求中助手最多调用多少轮工具，防止死循环",
   maxReadDesc: "超长笔记会被截断后再发给模型，节省 token",
   promptDesc: "定义助手的角色和规则",
+  controlDesc: "允许 Agent 执行 Obsidian 命令、启用/停用插件、读取和修改 Obsidian 及其他插件的设置、打开插件安装页。每次操作都会先请你确认，并且可以撤销。",
   kindDesc: "OpenAI 官方（尤其是推理模型）选第一项；其他第三方服务选兼容接口；Claude 官方选 Anthropic",
   modelDesc: "需要支持工具调用（function calling）的模型",
   reasoningDesc: "仅对推理模型（如 GPT-5 / o 系列）有效。越高越聪明但越慢越贵；改笔记这类任务通常 low 或 medium 就够。",
@@ -248,6 +252,12 @@ export class AgentSettingTab extends PluginSettingTab {
           {
             name: "显示工具调用详情",
             control: { type: "toggle", key: "showToolDetails" },
+          },
+          {
+            name: "允许控制 Obsidian",
+            desc: TEXT.controlDesc,
+            aliases: ["command", "plugin", "settings", "命令", "插件", "设置"],
+            control: { type: "toggle", key: "allowControl" },
           },
           {
             name: "系统提示词",
@@ -588,6 +598,16 @@ export class AgentSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(s.showToolDetails).onChange(async (v) => {
           s.showToolDetails = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("允许控制 Obsidian")
+      .setDesc(TEXT.controlDesc)
+      .addToggle((t) =>
+        t.setValue(s.allowControl).onChange(async (v) => {
+          s.allowControl = v;
           await this.plugin.saveSettings();
         }),
       );

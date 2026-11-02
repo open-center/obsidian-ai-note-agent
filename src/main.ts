@@ -13,7 +13,7 @@ export default class AIAgentPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
-    this.tools = new VaultTools(this.app, () => this.settings, () => this.editorContext());
+    this.tools = new VaultTools(this.app, () => this.settings, () => this.editorContext(), this.manifest.id);
 
     this.registerView(VIEW_TYPE, (leaf) => new AgentView(leaf, this));
     this.addRibbonIcon("bot", "打开 AI 对话面板", () => void this.activateView());

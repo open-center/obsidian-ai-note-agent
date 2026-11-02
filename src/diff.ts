@@ -73,6 +73,7 @@ export class ConfirmChangeModal extends Modal {
     private before: string | null,
     private after: string | null,
     private resolve: (ok: boolean) => void,
+    private okText = "应用修改",
   ) {
     super(app);
   }
@@ -90,7 +91,7 @@ export class ConfirmChangeModal extends Modal {
     }
     const btns = contentEl.createDiv({ cls: "aiac-modal-buttons" });
     btns.createEl("button", { text: "拒绝" }).onclick = () => this.finish(false);
-    const ok = btns.createEl("button", { text: "应用修改", cls: "mod-cta" });
+    const ok = btns.createEl("button", { text: this.okText, cls: "mod-cta" });
     ok.onclick = () => this.finish(true);
     window.setTimeout(() => ok.focus(), 50);
   }
@@ -106,6 +107,6 @@ export class ConfirmChangeModal extends Modal {
   }
 }
 
-export function confirmChange(app: App, title: string, description: string, before: string | null, after: string | null): Promise<boolean> {
-  return new Promise((resolve) => new ConfirmChangeModal(app, title, description, before, after, resolve).open());
+export function confirmChange(app: App, title: string, description: string, before: string | null, after: string | null, okText?: string): Promise<boolean> {
+  return new Promise((resolve) => new ConfirmChangeModal(app, title, description, before, after, resolve, okText).open());
 }
