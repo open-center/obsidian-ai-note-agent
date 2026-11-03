@@ -24,7 +24,7 @@ export function getSecretStorage(app: App): SecretStorageLike | null {
 
 /** 密钥 ID：小写字母、数字和连字符 */
 export function secretIdFor(p: ProviderConfig): string {
-  return `ai-note-agent-${p.id.toLowerCase().replace(/[^a-z0-9-]/g, "")}`;
+  return `notewright-${p.id.toLowerCase().replace(/[^a-z0-9-]/g, "")}`;
 }
 
 /** 读取提供商的 API key（优先密钥存储，其次 data.json 中的旧值） */
