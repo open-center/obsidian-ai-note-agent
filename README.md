@@ -1,6 +1,10 @@
-# AI Note Agent
+# AI Note Agent Legacy
 
-> An AI agent for your Obsidian vault.
+> Retired community entry (`notewright`). Development continues in [AI Note Agent](https://github.com/open-center/ai-note-agent), using ID `ai-note-agent` and a separate version series starting at `1.0.0`.
+>
+> Download the [new 1.0.0 release](https://github.com/open-center/ai-note-agent/releases/tag/1.0.0) and follow the [settings migration guide](https://github.com/open-center/ai-note-agent#moving-from-notewright-to-ai-note-agent). Old releases remain available for existing users.
+>
+> 旧社区条目 `notewright` 已归档，后续开发迁移到上述新仓库。新版使用 `ai-note-agent`，版本从 `1.0.0` 开始；迁移前请备份旧插件设置。
 
 Chat with OpenAI, Claude, DeepSeek or any OpenAI-compatible model in an Obsidian sidebar, and let it act as an agent that reads, searches, creates and edits your notes — with a diff preview and one-click undo for every change.
 
