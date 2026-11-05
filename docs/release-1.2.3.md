@@ -6,6 +6,17 @@
 - Prepared release: `1.2.3`, ID `ai-note-agent`.
 - Display name and repository remain `AI Note Agent` and `open-center/obsidian-ai-note-agent`.
 - The community directory change has not been requested or completed.
+- The code is pushed in [draft PR #1](https://github.com/open-center/obsidian-ai-note-agent/pull/1).
+
+## Validation completed on 2026-11-05
+
+- Production build and ESLint passed locally and in GitHub Actions.
+- Release metadata consistently uses version `1.2.3` and plugin ID `ai-note-agent`.
+- Targeted checks cover reading/updating legacy secret references, creating keys with the new prefix, migrating plaintext keys, and the fallback on older Obsidian versions.
+- Tested the built plugin in a disposable vault on Obsidian `1.15.0`: fresh installation loaded; commands used the new ID; a synthetic legacy `notewright/data.json` preserved providers, active provider, panel position, and system prompt when copied to the new directory.
+- Verified legacy secret access and plaintext-to-secret-storage migration using synthetic keys in the disposable vault. Reload succeeded without captured runtime errors or error-level console messages. Visually checked the migrated settings.
+- Cleared the synthetic keys and disabled the plugin in the test vault after verification. No real vault settings or credentials were copied.
+- Community-browser installation under the new ID remains pending the administrator-coordinated directory change.
 
 The [official community directory FAQ](https://docs.obsidian.md/community-directory/faq) says a published entry's identifier cannot be changed by its owner. Request administrator help in [Discord's #community-directory channel](https://discord.com/channels/686053708261228577/1514299829474558013). The FAQ states that changing the identifier resets download counts and requires existing users to reinstall.
 
