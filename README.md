@@ -58,9 +58,9 @@ Chat with OpenAI, Claude, DeepSeek or any OpenAI-compatible model in an Obsidian
 
 ## Installation
 
-From the community directory: **Settings → Community plugins → Browse**, search for **AI Note Agent**, install and enable.
+This legacy community entry has been archived. Install [AI Note Agent](https://community.obsidian.md/plugins/ai-note-agent) with ID `ai-note-agent` instead, and follow its [migration guide](https://github.com/open-center/ai-note-agent#moving-from-notewright-to-ai-note-agent).
 
-Manual install: download `main.js`, `manifest.json` and `styles.css` from the latest [release](../../releases) into `<vault>/.obsidian/plugins/notewright/`, then enable the plugin.
+For recovery of an existing legacy installation only: download `main.js`, `manifest.json` and `styles.css` from the latest [release](../../releases) into `<vault>/.obsidian/plugins/notewright/`, then enable the plugin.
 
 ## Usage
 
