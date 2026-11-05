@@ -24,7 +24,7 @@ export function getSecretStorage(app: App): SecretStorageLike | null {
 
 /** 密钥 ID：小写字母、数字和连字符 */
 export function secretIdFor(p: ProviderConfig): string {
-  return `notewright-${p.id.toLowerCase().replace(/[^a-z0-9-]/g, "")}`;
+  return `ai-note-agent-${p.id.toLowerCase().replace(/[^a-z0-9-]/g, "")}`;
 }
 
 /** 读取提供商的 API key（优先密钥存储，其次 data.json 中的旧值） */
@@ -41,6 +41,7 @@ export function writeApiKey(app: App, p: ProviderConfig, value: string): boolean
     p.apiKey = value;
     return false;
   }
+  // 保留已有的引用（包括旧版 notewright-*），复制旧设置后仍能读取和更新原密钥。
   const id = p.apiKeySecret || secretIdFor(p);
   storage.setSecret(id, value);
   p.apiKeySecret = id;

@@ -56,7 +56,23 @@ Chat with OpenAI, Claude, DeepSeek or any OpenAI-compatible model in an Obsidian
 
 From the community directory: **Settings → Community plugins → Browse**, search for **AI Note Agent**, install and enable.
 
-Manual install: download `main.js`, `manifest.json` and `styles.css` from the latest [release](../../releases) into `<vault>/.obsidian/plugins/notewright/`, then enable the plugin.
+Manual install: download `main.js`, `manifest.json` and `styles.css` from a [release](../../releases) into `<vault>/.obsidian/plugins/<id>/`, where `<id>` is the `id` in the downloaded `manifest.json`. Version 1.2.2 uses `notewright`; the planned 1.2.3 release uses `ai-note-agent`.
+
+### Moving from `notewright` to `ai-note-agent`
+
+The ID change in 1.2.3 is pending coordination with Obsidian's community directory administrators. The published 1.2.2 release still uses `notewright`. An ID change requires reinstalling the plugin; it does not move your settings automatically.
+
+After the new ID is available:
+
+1. Back up `<vault>/.obsidian/plugins/notewright/`, including `data.json`, and disable the old plugin.
+2. Install the release whose manifest ID is `ai-note-agent`, leaving it disabled for now.
+3. Close Obsidian. To keep your settings, copy the old `data.json` to `<vault>/.obsidian/plugins/ai-note-agent/data.json`. If that destination already has settings you want to keep, back it up before replacing it.
+4. Reopen Obsidian and enable the new plugin. Check your providers and settings, and reassign any command hotkeys to the new plugin. Keep the old plugin disabled to avoid duplicate views and commands.
+5. Remove the old installation only after verifying the new one works and retaining your backup.
+
+Existing API key references in `data.json` keep working with the same Obsidian secret storage on the same device. Newly stored keys use the `ai-note-agent-` prefix. On another device, enter the keys again.
+
+If your vault uses a custom configuration folder, replace `.obsidian` in these paths with that folder.
 
 ## Usage
 
@@ -76,6 +92,8 @@ npm run lint     # Obsidian's official ESLint rules
 ```
 
 Releases are built by GitHub Actions: bump the version with `npm version patch|minor|major`, push the tag, and publish the draft release that the workflow creates.
+
+The pending ID change has a separate [1.2.3 release checklist](docs/release-1.2.3.md); coordinate the directory change before merging or publishing it.
 
 ## Author
 
@@ -118,6 +136,18 @@ zhang33 · [zyb@zhang33.net](mailto:zyb@zhang33.net) · part of [OpenCenter](htt
 - **发送的内容**：你的消息、当前笔记路径与选中文本、你添加的附件内容、模型通过工具主动读取的笔记内容，以及你批准执行的本地命令的输出。
 - **文件访问**：插件读写仓库内的文件；仓库外的文件只有在你主动添加为附件、或你批准的本地命令读取时才会被访问。附件只保存在当前对话的内存中。
 - **API Key 存储**：Obsidian 1.11.4 及以上版本，API Key 保存在 Obsidian 的系统密钥存储（操作系统钥匙串）中，不写入 `data.json`，也不会随仓库同步或公开；换设备使用需重新填写一次。旧版本保存的 Key 会自动迁移。更早的 Obsidian 版本仍以明文保存在 `data.json`，同步或公开仓库时请排除该文件。
+
+### 从旧 ID 迁移
+
+计划中的 1.2.3 将插件 ID 从 `notewright` 改为 `ai-note-agent`，目前仍需社区目录管理员协助；已发布的 1.2.2 继续使用 `notewright`。新 ID 上架后需要重新安装，设置不会自动转移：
+
+1. 备份 `<仓库>/.obsidian/plugins/notewright/`（包括 `data.json`），并停用旧插件。
+2. 安装 manifest ID 为 `ai-note-agent` 的新版，暂不启用。
+3. 关闭 Obsidian，将旧版 `data.json` 复制到 `<仓库>/.obsidian/plugins/ai-note-agent/data.json`；如果目标文件已有需要保留的设置，先备份再替换。
+4. 重新打开 Obsidian，启用新版，检查提供商和设置，并重新绑定命令快捷键。旧版保持停用，避免面板和命令冲突。
+5. 确认新版正常后再移除旧版，保留备份。
+
+复制的设置中已有的密钥引用，在同一设备的同一 Obsidian 密钥存储中继续有效；新增密钥使用 `ai-note-agent-` 前缀。换设备仍需重新填写密钥。使用自定义配置目录时，请将上述路径中的 `.obsidian` 替换为实际目录。
 
 ### 开发
 
